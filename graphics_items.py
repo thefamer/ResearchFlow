@@ -458,13 +458,16 @@ class TagBadge(QGraphicsRectItem):
 # ============================================================================
 class ResizeHandleItem(QGraphicsItem):
     """Handle for resizing nodes."""
-    def __init__(self, parent):
+    
+    def __init__(self, parent: "BaseNodeItem"):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.SizeHorCursor)
         self.setAcceptedMouseButtons(Qt.MouseButton.LeftButton)
         self._parent = parent
+        self._start_pos = None
+        self._start_width = 0
         
-    def boundingRect(self):
+    def boundingRect(self) -> QRectF:
         return QRectF(0, 0, 12, 12)
         
     def paint(self, painter, option, widget=None):

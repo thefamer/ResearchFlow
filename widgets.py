@@ -315,13 +315,11 @@ class ProjectDockWidget(QDockWidget):
     tag_removed = pyqtSignal(str)
     tag_renamed = pyqtSignal(str, str)
     
-    # New V1.2.0 signals
+    # UI Signals
     description_changed = pyqtSignal(str)
-    todo_changed = pyqtSignal()  # Signal to save project
+    todo_changed = pyqtSignal()
     edge_color_changed = pyqtSignal(str, str)  # pipeline_color, reference_color
-    
-    # V2.1.0: Animated close
-    close_requested = pyqtSignal()
+    close_requested = pyqtSignal()  # For animated close
     
     def __init__(self, parent=None):
         super().__init__("Project Manager", parent)

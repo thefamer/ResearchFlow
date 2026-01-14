@@ -174,13 +174,15 @@ class ProjectData:
     edges: list[EdgeData] = field(default_factory=list)
     pipeline_initialized: bool = False
     
-    # V1.2.0: Project description and TODO
+    # Project metadata
     description: str = ""
     todos: list[dict] = field(default_factory=list)  # [{"text": "...", "done": False}]
     
-    # V1.2.0: Edge color customization
-    pipeline_edge_color: str = "#607D8B"  # Gray-blue for pipeline connections
-    reference_edge_color: str = "#4CAF50"  # Green for reference connections
+    # Edge colors
+    pipeline_edge_color: str = "#607D8B"
+    reference_edge_color: str = "#4CAF50"
+    
+    # UI layout persistence
     dock_layout: list[int] = field(default_factory=list)
     
     def to_dict(self) -> dict:

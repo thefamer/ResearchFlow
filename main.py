@@ -7,14 +7,16 @@ import sys
 import os
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
+
+# Constants
+QWIDGETSIZE_MAX = 16777215  # Qt's maximum widget size
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QGraphicsScene, QGraphicsView,
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QStatusBar,
     QFileDialog, QMessageBox, QMenu, QPushButton
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer, QPropertyAnimation, QVariantAnimation, QEasingCurve
+from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import (
     QAction, QKeySequence, QDragEnterEvent, QDropEvent,
     QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush, QIcon, QPen
@@ -319,17 +321,15 @@ class ResearchView(QGraphicsView):
     
     def keyPressEvent(self, event) -> None:
         """Handle keyboard input."""
-        from PyQt6.QtCore import Qt as QtCore
-        
-        if event.key() == QtCore.Key.Key_Delete:
+        if event.key() == Qt.Key.Key_Delete:
             # Delete selected items
             self._delete_selected_items()
             event.accept()
-        elif event.key() == QtCore.Key.Key_Up:
+        elif event.key() == Qt.Key.Key_Up:
             # Move selected snippet up
             self._move_selected_snippets("up")
             event.accept()
-        elif event.key() == QtCore.Key.Key_Down:
+        elif event.key() == Qt.Key.Key_Down:
             # Move selected snippet down
             self._move_selected_snippets("down")
             event.accept()
@@ -748,14 +748,14 @@ class MainWindow(QMainWindow):
     def _finish_dock_show(self) -> None:
         """Finish show animation - restore normal sizing."""
         self.project_dock.setMinimumWidth(250)
-        self.project_dock.setMaximumWidth(16777215)
+        self.project_dock.setMaximumWidth(QWIDGETSIZE_MAX)
         self._dock_is_animating = False
     
     def _finish_dock_hide(self) -> None:
         """Finish hide animation."""
         self.project_dock.hide()
         self.project_dock.setMinimumWidth(250)
-        self.project_dock.setMaximumWidth(16777215)
+        self.project_dock.setMaximumWidth(QWIDGETSIZE_MAX)
         self._dock_is_animating = False
     
     def _on_dock_visibility_changed(self, visible: bool) -> None:
