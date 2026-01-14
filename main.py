@@ -52,6 +52,7 @@ class ResearchScene(QGraphicsScene):
         self._edges: dict[str, EdgeItem] = {}
         self._temp_connection: Optional[TempConnectionLine] = None
         self._connection_source: Optional[BaseNodeItem] = None
+        self._suppress_context_menu: bool = False  # Flag to prevent context menu after connection
         
         self.project_manager: Optional[ProjectManager] = None
     
@@ -94,6 +95,12 @@ class ResearchScene(QGraphicsScene):
             return edge
         return None
     
+    def remove_edge(self, edge_id: str) -> None:
+        """Remove an edge by its ID."""
+        if edge_id in self._edges:
+            edge = self._edges.pop(edge_id)
+            self.removeItem(edge)
+    
     def get_node_at(self, pos: QPointF) -> Optional[BaseNodeItem]:
         """Get the node at the given scene position."""
         items = self.items(pos)
@@ -127,19 +134,18 @@ class ResearchScene(QGraphicsScene):
         if self._connection_source and target and self._connection_source != target:
             source = self._connection_source
             
-            # Only allow Reference → Pipeline connections
+            # Deep copy snippets only when connecting Reference → Pipeline
             if isinstance(source, ReferenceNodeItem) and isinstance(target, PipelineModuleItem):
-                # Deep copy snippets
                 snippets = source.get_snippets_data()
                 if snippets:
                     target.add_cloned_snippets(snippets, source.get_title())
-                
-                # Create edge
-                edge_id = generate_uuid()
-                self.add_edge(source.node_data.id, target.node_data.id, edge_id)
-                
-                self.cancel_connection()
-                return True
+            
+            # Create edge for any connection type
+            edge_id = generate_uuid()
+            self.add_edge(source.node_data.id, target.node_data.id, edge_id)
+            
+            self.cancel_connection()
+            return True
         
         self.cancel_connection()
         return False
@@ -153,6 +159,9 @@ class ResearchScene(QGraphicsScene):
         if self._temp_connection:
             self.removeItem(self._temp_connection)
             self._temp_connection = None
+        
+        # Suppress context menu briefly
+        self._suppress_context_menu = True
     
     def _on_node_changed(self, node_id: str) -> None:
         """Handle node data changes."""
@@ -251,6 +260,12 @@ class ResearchView(QGraphicsView):
         
         # Connection state
         self._is_connecting = False
+        self._right_click_start: Optional[QPointF] = None  # Track right-click start for drag detection
+        self._right_click_node: Optional[BaseNodeItem] = None  # Node where right-click started
+        self._connection_started = False  # True once drag threshold exceeded
+        
+        # Drag threshold in pixels
+        self._drag_threshold = 10
     
     def wheelEvent(self, event: QWheelEvent) -> None:
         """Zoom with mouse wheel."""
@@ -265,13 +280,15 @@ class ResearchView(QGraphicsView):
             self._pan_start = event.position()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         elif event.button() == Qt.MouseButton.RightButton:
-            # Check if starting connection from a node
+            # Record position for possible connection drag
             scene_pos = self.mapToScene(event.pos())
             node = self._research_scene.get_node_at(scene_pos)
             if node:
+                self._right_click_start = event.position()
+                self._right_click_node = node
                 self._is_connecting = True
-                self._research_scene.start_connection(node, scene_pos)
-                return
+                self._connection_started = False  # Don't start until drag threshold hit
+                return  # Don't pass to parent yet
         
         super().mousePressEvent(event)
     
@@ -286,9 +303,20 @@ class ResearchView(QGraphicsView):
             self.verticalScrollBar().setValue(
                 int(self.verticalScrollBar().value() - delta.y())
             )
-        elif self._is_connecting:
-            scene_pos = self.mapToScene(event.pos())
-            self._research_scene.update_temp_connection(scene_pos)
+        elif self._is_connecting and self._right_click_start:
+            # Check if we've exceeded drag threshold
+            delta = event.position() - self._right_click_start
+            distance = (delta.x() ** 2 + delta.y() ** 2) ** 0.5
+            
+            if distance >= self._drag_threshold and not self._connection_started:
+                # Start the actual connection now
+                self._connection_started = True
+                scene_pos = self.mapToScene(self._right_click_start.toPoint())
+                self._research_scene.start_connection(self._right_click_node, scene_pos)
+            
+            if self._connection_started:
+                scene_pos = self.mapToScene(event.pos())
+                self._research_scene.update_temp_connection(scene_pos)
         else:
             super().mouseMoveEvent(event)
             # Update edges when nodes move
@@ -301,12 +329,27 @@ class ResearchView(QGraphicsView):
             self.setCursor(Qt.CursorShape.ArrowCursor)
         elif event.button() == Qt.MouseButton.RightButton and self._is_connecting:
             self._is_connecting = False
-            scene_pos = self.mapToScene(event.pos())
-            target = self._research_scene.get_node_at(scene_pos)
-            if target:
-                self._research_scene.complete_connection(target)
-            else:
-                self._research_scene.cancel_connection()
+            was_connection = self._connection_started  # Save before reset
+            
+            if was_connection:
+                # Complete the connection
+                scene_pos = self.mapToScene(event.pos())
+                target = self._research_scene.get_node_at(scene_pos)
+                if target:
+                    self._research_scene.complete_connection(target)
+                else:
+                    self._research_scene.cancel_connection()
+            
+            # Reset state
+            self._right_click_start = None
+            self._right_click_node = None
+            self._connection_started = False
+            
+            if was_connection:
+                # Don't propagate - prevents context menu
+                event.accept()
+                return
+            # else: No drag occurred - let context menu show normally
         else:
             super().mouseReleaseEvent(event)
             self._research_scene.update_all_edges()

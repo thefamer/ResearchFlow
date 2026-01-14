@@ -87,9 +87,11 @@ class SnippetItem(QGraphicsRectItem):
         self._pixmap: Optional[QPixmap] = None
         self._is_hover = False
         self._is_editing_label = False
+        self._drag_start_y: Optional[float] = None
         
         self.setAcceptHoverEvents(True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, False)
         
         # Load image if this is an image snippet
         if snippet_data.type == "image" and snippet_data.content:
@@ -285,6 +287,38 @@ class SnippetItem(QGraphicsRectItem):
             self._load_image()
             self._update_geometry()
             self.update()
+    
+    def contextMenuEvent(self, event) -> None:
+        """Show context menu for snippet operations."""
+        menu = QMenu()
+        
+        # Move up action
+        move_up_action = menu.addAction("↑ Move Up")
+        move_up_action.triggered.connect(self._move_up)
+        
+        # Move down action
+        move_down_action = menu.addAction("↓ Move Down")
+        move_down_action.triggered.connect(self._move_down)
+        
+        menu.addSeparator()
+        
+        # Delete action
+        delete_action = menu.addAction("🗑 Delete Snippet")
+        delete_action.triggered.connect(self._delete_snippet)
+        
+        menu.exec(event.screenPos())
+    
+    def _move_up(self) -> None:
+        """Move this snippet up in the list."""
+        self.parent_node.move_snippet_up(self)
+    
+    def _move_down(self) -> None:
+        """Move this snippet down in the list."""
+        self.parent_node.move_snippet_down(self)
+    
+    def _delete_snippet(self) -> None:
+        """Delete this snippet."""
+        self.parent_node.remove_snippet(self)
 
 
 # ============================================================================
@@ -506,6 +540,13 @@ class BaseNodeItem(QGraphicsRectItem):
     
     def contextMenuEvent(self, event):
         """Show context menu on right-click."""
+        # Check if the scene wants to suppress context menu (after connection)
+        scene = self.scene()
+        if scene and hasattr(scene, '_suppress_context_menu') and scene._suppress_context_menu:
+            scene._suppress_context_menu = False  # Reset the flag
+            event.accept()  # Consume the event
+            return
+        
         menu = QMenu()
         
         add_text_action = menu.addAction("Add Text Snippet")
@@ -594,6 +635,58 @@ class BaseNodeItem(QGraphicsRectItem):
         """Visual indicator that this node is being dragged for connection."""
         self._is_connection_source = is_source
         self.update()
+    
+    def remove_snippet(self, snippet_item: "SnippetItem") -> None:
+        """Remove a snippet from this node."""
+        if snippet_item in self._snippet_items:
+            # Remove from data
+            if snippet_item.snippet_data in self.node_data.snippets:
+                self.node_data.snippets.remove(snippet_item.snippet_data)
+            
+            # Remove from UI
+            self._snippet_items.remove(snippet_item)
+            if snippet_item.scene():
+                snippet_item.scene().removeItem(snippet_item)
+            
+            self.update_layout()
+            self.signals.snippet_removed.emit(self.node_data.id, snippet_item.snippet_data.id)
+            self.signals.data_changed.emit(self.node_data.id)
+    
+    def move_snippet_up(self, snippet_item: "SnippetItem") -> None:
+        """Move a snippet up in the list."""
+        if snippet_item in self._snippet_items:
+            idx = self._snippet_items.index(snippet_item)
+            if idx > 0:
+                # Swap in UI list
+                self._snippet_items[idx], self._snippet_items[idx-1] = \
+                    self._snippet_items[idx-1], self._snippet_items[idx]
+                
+                # Swap in data list
+                data_idx = self.node_data.snippets.index(snippet_item.snippet_data)
+                if data_idx > 0:
+                    self.node_data.snippets[data_idx], self.node_data.snippets[data_idx-1] = \
+                        self.node_data.snippets[data_idx-1], self.node_data.snippets[data_idx]
+                
+                self.update_layout()
+                self.signals.data_changed.emit(self.node_data.id)
+    
+    def move_snippet_down(self, snippet_item: "SnippetItem") -> None:
+        """Move a snippet down in the list."""
+        if snippet_item in self._snippet_items:
+            idx = self._snippet_items.index(snippet_item)
+            if idx < len(self._snippet_items) - 1:
+                # Swap in UI list
+                self._snippet_items[idx], self._snippet_items[idx+1] = \
+                    self._snippet_items[idx+1], self._snippet_items[idx]
+                
+                # Swap in data list
+                data_idx = self.node_data.snippets.index(snippet_item.snippet_data)
+                if data_idx < len(self.node_data.snippets) - 1:
+                    self.node_data.snippets[data_idx], self.node_data.snippets[data_idx+1] = \
+                        self.node_data.snippets[data_idx+1], self.node_data.snippets[data_idx]
+                
+                self.update_layout()
+                self.signals.data_changed.emit(self.node_data.id)
 
 
 # ============================================================================
@@ -848,6 +941,7 @@ class EdgeItem(QGraphicsPathItem):
     """
     A connection arrow between two nodes.
     Drawn as a curved bezier path with an arrowhead.
+    Supports selection and deletion via context menu.
     """
     
     ARROW_SIZE = 10
@@ -857,63 +951,153 @@ class EdgeItem(QGraphicsPathItem):
         self.source_node = source_node
         self.target_node = target_node
         self.edge_id = edge_id or generate_uuid()
+        self._is_hover = False
+        
+        # Make selectable and hoverable
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
         
         self.setPen(QPen(Colors.CONNECTION_LINE, 2))
         self.setZValue(-1)  # Draw behind nodes
         
         self.update_path()
     
+    def _get_edge_point(self, rect: QRectF, center: QPointF, target: QPointF) -> QPointF:
+        """Calculate the intersection point between a line from center to target and the rectangle edge."""
+        dx = target.x() - center.x()
+        dy = target.y() - center.y()
+        
+        if dx == 0 and dy == 0:
+            return center
+        
+        # Calculate intersection with each edge
+        # We need to find where the line from center to target crosses the rectangle
+        
+        # Try left/right edges
+        if dx != 0:
+            if dx > 0:  # Going right
+                t = (rect.right() - center.x()) / dx
+            else:  # Going left
+                t = (rect.left() - center.x()) / dx
+            
+            y_at_t = center.y() + t * dy
+            if rect.top() <= y_at_t <= rect.bottom() and t > 0:
+                return QPointF(rect.right() if dx > 0 else rect.left(), y_at_t)
+        
+        # Try top/bottom edges
+        if dy != 0:
+            if dy > 0:  # Going down
+                t = (rect.bottom() - center.y()) / dy
+            else:  # Going up
+                t = (rect.top() - center.y()) / dy
+            
+            x_at_t = center.x() + t * dx
+            if rect.left() <= x_at_t <= rect.right() and t > 0:
+                return QPointF(x_at_t, rect.bottom() if dy > 0 else rect.top())
+        
+        return center
+    
     def update_path(self) -> None:
         """Recalculate the path based on node positions."""
         if not self.source_node or not self.target_node:
             return
         
-        source_center = self.source_node.sceneBoundingRect().center()
-        target_center = self.target_node.sceneBoundingRect().center()
+        source_rect = self.source_node.sceneBoundingRect()
+        target_rect = self.target_node.sceneBoundingRect()
+        source_center = source_rect.center()
+        target_center = target_rect.center()
+        
+        # Calculate edge intersection points
+        source_edge = self._get_edge_point(source_rect, source_center, target_center)
+        target_edge = self._get_edge_point(target_rect, target_center, source_center)
         
         # Calculate control points for bezier curve
-        dx = target_center.x() - source_center.x()
-        dy = target_center.y() - source_center.y()
+        dx = target_edge.x() - source_edge.x()
+        dy = target_edge.y() - source_edge.y()
         
-        ctrl1 = QPointF(source_center.x() + dx * 0.5, source_center.y())
-        ctrl2 = QPointF(target_center.x() - dx * 0.5, target_center.y())
+        # Adjust control points based on direction
+        ctrl_offset = min(abs(dx) * 0.5, 80)  # Cap the curve
+        ctrl1 = QPointF(source_edge.x() + ctrl_offset * (1 if dx >= 0 else -1), source_edge.y())
+        ctrl2 = QPointF(target_edge.x() - ctrl_offset * (1 if dx >= 0 else -1), target_edge.y())
         
         # Create path
         path = QPainterPath()
-        path.moveTo(source_center)
-        path.cubicTo(ctrl1, ctrl2, target_center)
+        path.moveTo(source_edge)
+        path.cubicTo(ctrl1, ctrl2, target_edge)
         
         self.setPath(path)
+        
+        # Store edge points for arrowhead
+        self._source_edge = source_edge
+        self._target_edge = target_edge
     
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None) -> None:
+        # Determine color based on state
+        if self.isSelected():
+            color = Colors.SELECTION
+            width = 4
+        elif self._is_hover:
+            color = Colors.CONNECTION_LINE.lighter(120)
+            width = 3
+        else:
+            color = Colors.CONNECTION_LINE
+            width = 2
+        
         # Draw the path
-        painter.setPen(self.pen())
+        painter.setPen(QPen(color, width))
         painter.drawPath(self.path())
         
-        # Draw arrowhead at target
-        if self.source_node and self.target_node:
-            target_center = self.target_node.sceneBoundingRect().center()
-            source_center = self.source_node.sceneBoundingRect().center()
+        # Draw arrowhead at target edge
+        if hasattr(self, '_target_edge') and hasattr(self, '_source_edge'):
+            target_edge = self._target_edge
+            source_edge = self._source_edge
             
-            # Calculate angle
-            dx = target_center.x() - source_center.x()
-            dy = target_center.y() - source_center.y()
+            # Calculate angle from the last segment of the curve
+            dx = target_edge.x() - source_edge.x()
+            dy = target_edge.y() - source_edge.y()
             angle = math.atan2(dy, dx)
             
             # Arrowhead points
             arrow_p1 = QPointF(
-                target_center.x() - self.ARROW_SIZE * math.cos(angle - math.pi / 6),
-                target_center.y() - self.ARROW_SIZE * math.sin(angle - math.pi / 6)
+                target_edge.x() - self.ARROW_SIZE * math.cos(angle - math.pi / 6),
+                target_edge.y() - self.ARROW_SIZE * math.sin(angle - math.pi / 6)
             )
             arrow_p2 = QPointF(
-                target_center.x() - self.ARROW_SIZE * math.cos(angle + math.pi / 6),
-                target_center.y() - self.ARROW_SIZE * math.sin(angle + math.pi / 6)
+                target_edge.x() - self.ARROW_SIZE * math.cos(angle + math.pi / 6),
+                target_edge.y() - self.ARROW_SIZE * math.sin(angle + math.pi / 6)
             )
             
             # Draw arrowhead
-            arrow = QPolygonF([target_center, arrow_p1, arrow_p2])
-            painter.setBrush(QBrush(Colors.CONNECTION_LINE))
+            arrow = QPolygonF([target_edge, arrow_p1, arrow_p2])
+            painter.setBrush(QBrush(color))
             painter.drawPolygon(arrow)
+    
+    def hoverEnterEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = True
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.update()
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event: QGraphicsSceneHoverEvent) -> None:
+        self._is_hover = False
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        self.update()
+        super().hoverLeaveEvent(event)
+    
+    def contextMenuEvent(self, event) -> None:
+        """Show context menu for edge deletion."""
+        menu = QMenu()
+        
+        delete_action = menu.addAction("🗑 Delete Connection")
+        delete_action.triggered.connect(self._delete_edge)
+        
+        menu.exec(event.screenPos())
+    
+    def _delete_edge(self) -> None:
+        """Request deletion of this edge."""
+        scene = self.scene()
+        if scene and hasattr(scene, 'remove_edge'):
+            scene.remove_edge(self.edge_id)
 
 
 # ============================================================================

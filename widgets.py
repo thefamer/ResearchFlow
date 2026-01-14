@@ -112,11 +112,12 @@ class WelcomeDialog(QDialog):
         
         layout.addStretch()
     
-    def _create_folder_icon(self) -> "QPixmap":
+    def _create_folder_icon(self) -> "QIcon":
         """Create a simple folder icon."""
+        from PyQt6.QtGui import QIcon
         pixmap = QPixmap(16, 16)
         pixmap.fill(QColor("#FFC107"))
-        return pixmap
+        return QIcon(pixmap)
     
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
@@ -446,12 +447,25 @@ class MarkdownViewerDialog(QDialog):
         layout.addLayout(btn_layout)
     
     def _markdown_to_html(self, markdown: str) -> str:
-        """Basic markdown to HTML conversion."""
+        """Markdown to HTML conversion with LaTeX support (offline-friendly)."""
         import re
         
         html = markdown
         
+        # Handle LaTeX block formulas ($$...$$) - display as styled block
+        def format_block_formula(match):
+            formula = match.group(1).strip()
+            return f'<div class="math-block"><span class="math-formula">{self._escape_html(formula)}</span></div>'
+        html = re.sub(r'\$\$(.+?)\$\$', format_block_formula, html, flags=re.DOTALL)
+        
+        # Handle LaTeX inline formulas ($...$) - display as styled inline
+        def format_inline_formula(match):
+            formula = match.group(1)
+            return f'<span class="math-inline">{self._escape_html(formula)}</span>'
+        html = re.sub(r'\$([^$\n]+?)\$', format_inline_formula, html)
+        
         # Headers
+        html = re.sub(r'^#### (.+)$', r'<h4>\1</h4>', html, flags=re.MULTILINE)
         html = re.sub(r'^### (.+)$', r'<h3>\1</h3>', html, flags=re.MULTILINE)
         html = re.sub(r'^## (.+)$', r'<h2>\1</h2>', html, flags=re.MULTILINE)
         html = re.sub(r'^# (.+)$', r'<h1>\1</h1>', html, flags=re.MULTILINE)
@@ -461,34 +475,135 @@ class MarkdownViewerDialog(QDialog):
         html = re.sub(r'\*(.+?)\*', r'<em>\1</em>', html)
         
         # Code blocks
-        html = re.sub(r'```(\w*)\n(.*?)```', r'<pre style="background:#f5f5f5;padding:10px;border-radius:4px;"><code>\2</code></pre>', html, flags=re.DOTALL)
-        html = re.sub(r'`(.+?)`', r'<code style="background:#f5f5f5;padding:2px 5px;border-radius:3px;">\1</code>', html)
+        html = re.sub(r'```(\w*)\n(.*?)```', r'<pre class="code-block"><code>\2</code></pre>', html, flags=re.DOTALL)
+        html = re.sub(r'`(.+?)`', r'<code class="inline-code">\1</code>', html)
         
         # Links
         html = re.sub(r'\[(.+?)\]\((.+?)\)', r'<a href="\2">\1</a>', html)
         
-        # Lists
-        html = re.sub(r'^- (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        # Images (local paths only for portability)
+        html = re.sub(r'!\[(.+?)\]\((.+?)\)', r'<img src="\2" alt="\1" style="max-width:100%;">', html)
         
-        # Line breaks
-        html = html.replace('\n\n', '</p><p>')
+        # Lists (unordered)
+        html = re.sub(r'^- (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        html = re.sub(r'(<li>.*</li>\n?)+', r'<ul>\g<0></ul>', html)
+        
+        # Lists (ordered)
+        html = re.sub(r'^\d+\. (.+)$', r'<li>\1</li>', html, flags=re.MULTILINE)
+        
+        # Blockquotes
+        html = re.sub(r'^> (.+)$', r'<blockquote>\1</blockquote>', html, flags=re.MULTILINE)
+        
+        # Horizontal rules
+        html = re.sub(r'^---+$', r'<hr>', html, flags=re.MULTILINE)
+        
+        # Line breaks (paragraphs)
+        html = re.sub(r'\n\n+', '</p><p>', html)
         html = f'<p>{html}</p>'
         
+        # Clean up empty paragraphs
+        html = re.sub(r'<p>\s*</p>', '', html)
+        html = re.sub(r'<p>(<h[1-4]>)', r'\1', html)
+        html = re.sub(r'(</h[1-4]>)</p>', r'\1', html)
+        html = re.sub(r'<p>(<ul>)', r'\1', html)
+        html = re.sub(r'(</ul>)</p>', r'\1', html)
+        html = re.sub(r'<p>(<pre)', r'\1', html)
+        html = re.sub(r'(</pre>)</p>', r'\1', html)
+        html = re.sub(r'<p>(<div)', r'\1', html)
+        html = re.sub(r'(</div>)</p>', r'\1', html)
+        
         return f"""
+        <!DOCTYPE html>
         <html>
         <head>
+            <meta charset="UTF-8">
             <style>
-                body {{ font-family: 'Segoe UI', sans-serif; line-height: 1.6; }}
+                body {{ 
+                    font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif; 
+                    line-height: 1.8; 
+                    padding: 20px;
+                    color: #333;
+                }}
                 h1 {{ color: #1976D2; border-bottom: 2px solid #E3F2FD; padding-bottom: 10px; }}
-                h2 {{ color: #1565C0; }}
-                h3 {{ color: #0D47A1; }}
+                h2 {{ color: #1565C0; margin-top: 24px; }}
+                h3 {{ color: #0D47A1; margin-top: 20px; }}
+                h4 {{ color: #0D47A1; margin-top: 16px; }}
                 a {{ color: #2196F3; }}
-                pre {{ overflow-x: auto; }}
+                
+                /* Code blocks */
+                .code-block {{
+                    background: #f5f5f5;
+                    padding: 12px;
+                    border-radius: 6px;
+                    overflow-x: auto;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 13px;
+                    border: 1px solid #e0e0e0;
+                }}
+                .inline-code {{
+                    background: #f5f5f5;
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-family: 'Consolas', 'Monaco', monospace;
+                    font-size: 13px;
+                }}
+                
+                /* LaTeX formulas - styled for readability */
+                .math-block {{ 
+                    background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
+                    padding: 16px 20px;
+                    margin: 16px 0;
+                    border-radius: 8px;
+                    text-align: center;
+                    overflow-x: auto;
+                    border-left: 4px solid #1976D2;
+                }}
+                .math-formula {{
+                    font-family: 'Cambria Math', 'Latin Modern Math', 'STIX Two Math', 'Times New Roman', serif;
+                    font-size: 15px;
+                    color: #0D47A1;
+                    white-space: pre-wrap;
+                    word-wrap: break-word;
+                }}
+                .math-inline {{
+                    font-family: 'Cambria Math', 'Latin Modern Math', 'Times New Roman', serif;
+                    font-size: 14px;
+                    color: #1565C0;
+                    background: #E3F2FD;
+                    padding: 1px 4px;
+                    border-radius: 3px;
+                }}
+                
+                /* Other elements */
+                ul {{ padding-left: 24px; }}
+                li {{ margin: 4px 0; }}
+                blockquote {{
+                    border-left: 4px solid #ddd;
+                    padding-left: 16px;
+                    color: #666;
+                    margin: 10px 0;
+                    font-style: italic;
+                }}
+                hr {{
+                    border: none;
+                    border-top: 1px solid #ddd;
+                    margin: 20px 0;
+                }}
+                table {{ border-collapse: collapse; width: 100%; margin: 16px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                th {{ background-color: #f5f5f5; }}
             </style>
         </head>
         <body>{html}</body>
         </html>
         """
+    
+    def _escape_html(self, text: str) -> str:
+        """Escape HTML special characters while preserving LaTeX."""
+        text = text.replace('&', '&amp;')
+        text = text.replace('<', '&lt;')
+        text = text.replace('>', '&gt;')
+        return text
 
 
 # ============================================================================
