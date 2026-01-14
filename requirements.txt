@@ -1,0 +1,5 @@
+# ResearchFlow Dependencies
+# Python 3.10+ required
+
+PyQt6>=6.4.0
+latex2mathml>=3.0.0

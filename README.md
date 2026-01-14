@@ -1,6 +1,22 @@
 # ResearchFlow
 
-**Version 2.1.0** | The Ultimate Academic Research Workflow Manager
+<p align="center">
+  <img src="icon.ico" alt="ResearchFlow Logo" width="80" height="80">
+</p>
+
+<p align="center">
+  <strong>The Ultimate Academic Research Workflow Manager</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-2.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
+  <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
+  <img src="https://img.shields.io/badge/PyQt6-6.0+-purple.svg" alt="PyQt6">
+</p>
+
+---
 
 ResearchFlow is a portable, aesthetically pleasing desktop application designed for academic researchers to manage workflows, literature, and ideas. Built with a focus on modern design and fluid user experience, it features a Notion-like interface, rich interactions, and powerful project management tools.
 
@@ -15,24 +31,29 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ### 🎨 UI Refinements
 - **Polished Sidebar**: Improved toggle button interactions and layout.
-- **Design System**: Standardized horizontal scrolling and consistent icon usage (`icon.ico`).
+- **Design System**: Standardized horizontal scrolling and consistent icon usage.
 
 ### ✨ Smooth Animations
 - **Animated Zoom**: Smooth, eased zoom transitions when scrolling for a premium feel.
 - **Sliding Sidebar**: The project dock slides in/out with fluid animation.
 - **Background Grid**: Subtle grid overlay on the canvas for easy node alignment.
 
-## ✨ What's New in V2.0.0
+<details>
+<summary><strong>📜 Previous Versions</strong></summary>
 
-### 🎨 Modern UI/UX Overhaul
+### V2.0.0
+
+#### 🎨 Modern UI/UX Overhaul
 - **Apple/Notion-Inspired Design**: Completely redesigned interface with rounded corners, subtle shadows, and a clean, minimalist aesthetic.
 - **Fluid Animations**: "Snappy" hover effects on nodes, smooth sidebar transitions, and refined interactions.
 - **Advanced Connections**: Bezier curves with tangent-correct arrowhead alignment for beautiful, readable flowcharts.
 
-### 🎛️ Enhanced Global Management
+#### 🎛️ Enhanced Global Management
 - **Smart Sidebar**: Collapsible project manager that tucks away neatly, accessible via a subtle floating toggle.
 - **Project Dashboard**: Integrated description editor, rich TODO list with strikethrough support, and global tag management.
 - **Theme Customization**: Global settings for pipeline and reference edge colors.
+
+</details>
 
 ---
 
@@ -44,7 +65,8 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 - **Snap-to-Grid**: Hold `Shift` while moving nodes for precise 20px grid alignment.
 
 ### 📄 Literature & Snippets
-- **Markdown Support**: Drag `.md` files to import papers.
+- **Markdown Support**: Drag `.md` files to import papers as reference nodes.
+- **PDF to Markdown**: We recommend using [MinerU](https://github.com/opendatalab/MinerU) to convert PDF papers to Markdown format for import.
 - **LaTeX Rendering**: Native rendering of inline `$math$` and block `$$math$$` formulas with automatic numbering.
 - **Multimedia Snippets**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
 - **Snippet Management**: Reorder snippets with `↑`/`↓` keys, delete with `Delete`.
@@ -56,9 +78,25 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## �️ Quick Start
+## 🛠️ Installation
 
-### Installation
+### Prerequisites
+
+- Python 3.10 or higher
+- Windows 10/11 (primary platform)
+
+### Quick Install
+
+```bash
+# Clone the repository
+git clone https://github.com/thefamer/ResearchFlow.git
+cd ResearchFlow
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+Or install dependencies manually:
 
 ```bash
 pip install PyQt6 latex2mathml
@@ -70,7 +108,9 @@ pip install PyQt6 latex2mathml
 python main.py
 ```
 
-### Usage Tips
+---
+
+## ⌨️ Keyboard Shortcuts
 
 | Action | Shortcut / Gesture |
 |--------|-------------------|
@@ -79,7 +119,10 @@ python main.py
 | **Reorder Snippets** | `↑` / `↓` keys |
 | **Paste Image** | `Ctrl+V` (with node selected) |
 | **Pan Canvas** | Middle Mouse Button Drag |
-| **Zoom** | Mouse Wheel |
+| **Zoom** | Mouse Wheel (Smooth animated) |
+| **Save Project** | `Ctrl+S` |
+| **New Project** | `Ctrl+N` |
+| **Open Project** | `Ctrl+O` |
 
 ---
 
@@ -92,17 +135,78 @@ ResearchFlow/
 ├── graphics_items.py    # Custom QGraphicsItems (Nodes, Edges)
 ├── widgets.py           # Custom UI Widgets & Modern Components
 ├── utils.py             # Utilities, ModernTheme, ProjectManager
-└── projects/            # Local Data Storage
+├── icon.ico             # Application Icon
+├── DESIGN_SYSTEM.md     # Design Documentation
+├── requirements.txt     # Python Dependencies
+└── projects/            # Local Data Storage (auto-created)
+    └── <project_name>/
+        ├── project_data.json
+        └── assets/
+            ├── papers/
+            └── images/
 ```
 
 ---
 
-## 🔧 Technology
+## 🔧 Technology Stack
 
-- **Python 3.10+**
-- **PyQt6**
-- **latex2mathml**
+| Component | Technology |
+|-----------|------------|
+| **Language** | Python 3.10+ |
+| **UI Framework** | PyQt6 |
+| **Math Rendering** | latex2mathml |
+| **Data Storage** | JSON (portable, no database) |
+| **Graphics** | QGraphicsView Framework |
 
 ---
 
-*Verified on Windows 10/11.*
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/AmazingFeature`)
+3. **Commit** your changes (`git commit -m 'Add some AmazingFeature'`)
+4. **Push** to the branch (`git push origin feature/AmazingFeature`)
+5. **Open** a Pull Request
+
+### Development Notes
+
+- Follow PEP 8 style guidelines
+- Add type hints to new functions
+- Update documentation for new features
+- Test on Windows before submitting
+
+---
+
+## 📋 Roadmap
+
+- [ ] macOS / Linux support
+- [ ] Export to PNG / PDF
+- [ ] Cloud sync integration
+- [ ] Plugin system
+- [ ] Dark theme
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- Inspired by [Notion](https://notion.so) and [Obsidian](https://obsidian.md)
+- Built with [PyQt6](https://www.riverbankcomputing.com/software/pyqt/)
+- Icons and design inspired by Apple Human Interface Guidelines
+
+---
+
+<p align="center">
+  Made with ❤️ for researchers everywhere
+</p>
+
+<p align="center">
+  <a href="#researchflow">Back to Top ↑</a>
+</p>
