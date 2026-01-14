@@ -268,7 +268,7 @@ class ModernDockTitleBar(QWidget):
         layout.addWidget(self.title_label)
         layout.addStretch()
         
-        # Button Style
+        # Close Button Style
         btn_style = f"""
             QPushButton {{
                 background: transparent;
@@ -287,29 +287,18 @@ class ModernDockTitleBar(QWidget):
             }}
         """
         
-        # Helper to create buttons
-        def create_btn(text, tooltip, callback):
-            btn = QPushButton(text)
-            btn.setFixedSize(28, 28)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setToolTip(tooltip)
-            btn.clicked.connect(callback)
-            btn.setStyleSheet(btn_style)
-            layout.addWidget(btn)
-            return btn
-            
-        # Float Button (Visual toggle)
-        self.float_btn = create_btn("❐", "Float/Dock", self._toggle_float)
-        
-        # Close Button
-        self.close_btn = create_btn("✕", "Close", self.dock.close)
-        
-    def _toggle_float(self):
-        self.dock.setFloating(not self.dock.isFloating())
-        
-    def mouseDoubleClickEvent(self, event):
-        # Double click to toggle float behaves like native title bar
-        self._toggle_float()
+        # Close Button only
+        self.close_btn = QPushButton("✕")
+        self.close_btn.setFixedSize(28, 28)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.close_btn.setToolTip("Close")
+        self.close_btn.clicked.connect(self._request_close)
+        self.close_btn.setStyleSheet(btn_style)
+        layout.addWidget(self.close_btn)
+    
+    def _request_close(self):
+        """Request animated close via signal."""
+        self.dock.close_requested.emit()
 
 
 class ProjectDockWidget(QDockWidget):
@@ -331,10 +320,14 @@ class ProjectDockWidget(QDockWidget):
     todo_changed = pyqtSignal()  # Signal to save project
     edge_color_changed = pyqtSignal(str, str)  # pipeline_color, reference_color
     
+    # V2.1.0: Animated close
+    close_requested = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__("Project Manager", parent)
         self.setTitleBarWidget(ModernDockTitleBar(self))
-        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)  # No float
         self.setMinimumWidth(250)
         
         # Data storage

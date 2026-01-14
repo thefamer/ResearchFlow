@@ -17,6 +17,11 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 - **Polished Sidebar**: Improved toggle button interactions and layout.
 - **Design System**: Standardized horizontal scrolling and consistent icon usage (`icon.ico`).
 
+### ✨ Smooth Animations
+- **Animated Zoom**: Smooth, eased zoom transitions when scrolling for a premium feel.
+- **Sliding Sidebar**: The project dock slides in/out with fluid animation.
+- **Background Grid**: Subtle grid overlay on the canvas for easy node alignment.
+
 ## ✨ What's New in V2.0.0
 
 ### 🎨 Modern UI/UX Overhaul

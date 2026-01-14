@@ -14,10 +14,10 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QToolBar, QStatusBar,
     QFileDialog, QMessageBox, QMenu, QPushButton
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer
+from PyQt6.QtCore import Qt, QPointF, QRectF, QMimeData, QByteArray, QBuffer, QPropertyAnimation, QVariantAnimation, QEasingCurve
 from PyQt6.QtGui import (
     QAction, QKeySequence, QDragEnterEvent, QDropEvent,
-    QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush, QIcon
+    QMouseEvent, QWheelEvent, QClipboard, QImage, QColor, QPainter, QBrush, QIcon, QPen
 )
 
 from models import (
@@ -46,7 +46,11 @@ class ResearchScene(QGraphicsScene):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSceneRect(-2000, -2000, 4000, 4000)
-        self.setBackgroundBrush(QBrush(QColor("#F5F5F5")))
+        
+        # Grid settings
+        self._grid_size = 25
+        self._grid_color = QColor("#E0E0E0")
+        self._bg_color = QColor("#FAFAFA")
         
         self._nodes: dict[str, BaseNodeItem] = {}
         self._edges: dict[str, EdgeItem] = {}
@@ -59,6 +63,32 @@ class ResearchScene(QGraphicsScene):
         self._reference_edge_color = "#4CAF50"
         
         self.project_manager: Optional[ProjectManager] = None
+    
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
+        """Draw a subtle grid background."""
+        # Fill background
+        painter.fillRect(rect, self._bg_color)
+        
+        # Draw grid
+        pen = QPen(self._grid_color)
+        pen.setWidth(1)
+        painter.setPen(pen)
+        
+        # Calculate grid bounds
+        left = int(rect.left()) - (int(rect.left()) % self._grid_size)
+        top = int(rect.top()) - (int(rect.top()) % self._grid_size)
+        
+        # Draw vertical lines
+        x = left
+        while x < rect.right():
+            painter.drawLine(int(x), int(rect.top()), int(x), int(rect.bottom()))
+            x += self._grid_size
+        
+        # Draw horizontal lines
+        y = top
+        while y < rect.bottom():
+            painter.drawLine(int(rect.left()), int(y), int(rect.right()), int(y))
+            y += self._grid_size
     
     def set_edge_colors(self, pipeline_color: str, reference_color: str) -> None:
         """Set edge colors and update all existing edges."""
@@ -281,6 +311,11 @@ class ResearchView(QGraphicsView):
         
         # Snap grid settings (activated by holding Shift)
         self._snap_grid_size = 20
+        
+        # Smooth zoom animation
+        self._current_zoom = 1.0
+        self._target_zoom = 1.0
+        self._zoom_animation = None
     
     def keyPressEvent(self, event) -> None:
         """Handle keyboard input."""
@@ -330,9 +365,38 @@ class ResearchView(QGraphicsView):
                 snippet.parent_node.move_snippet_down(snippet)
     
     def wheelEvent(self, event: QWheelEvent) -> None:
-        """Zoom with mouse wheel."""
+        """Zoom with mouse wheel - animated."""
+        # Calculate new target zoom
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(factor, factor)
+        new_target = self._target_zoom * factor
+        
+        # Clamp zoom level
+        new_target = max(0.1, min(5.0, new_target))
+        
+        if new_target == self._target_zoom:
+            return
+            
+        self._target_zoom = new_target
+        
+        # Stop any running animation
+        if self._zoom_animation:
+            self._zoom_animation.stop()
+        
+        # Create smooth zoom animation
+        self._zoom_animation = QVariantAnimation(self)
+        self._zoom_animation.setStartValue(self._current_zoom)
+        self._zoom_animation.setEndValue(self._target_zoom)
+        self._zoom_animation.setDuration(150)  # 150ms for snappy feel
+        self._zoom_animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._zoom_animation.valueChanged.connect(self._apply_zoom)
+        self._zoom_animation.start()
+    
+    def _apply_zoom(self, value: float) -> None:
+        """Apply zoom value during animation."""
+        if self._current_zoom != 0:
+            factor = value / self._current_zoom
+            self.scale(factor, factor)
+        self._current_zoom = value
     
     def mousePressEvent(self, event: QMouseEvent) -> None:
         """Handle mouse press for panning and connections."""
@@ -620,6 +684,7 @@ class MainWindow(QMainWindow):
         self.project_dock.description_changed.connect(self._on_description_changed)
         self.project_dock.todo_changed.connect(self._on_todo_changed)
         self.project_dock.edge_color_changed.connect(self._on_edge_color_changed)
+        self.project_dock.close_requested.connect(self._animate_dock_hide)
         
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
         
@@ -629,10 +694,69 @@ class MainWindow(QMainWindow):
         self.sidebar_toggle.setFixedSize(36, 48)
         self.sidebar_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.sidebar_toggle.hide()
-        self.sidebar_toggle.clicked.connect(self.project_dock.show)
+        self.sidebar_toggle.clicked.connect(self._animate_dock_show)
+        
+        # Dock animation
+        self._dock_animation = None
+        self._dock_target_width = 280
+        self._dock_is_animating = False
         
         # Handle visibility
         self.project_dock.visibilityChanged.connect(self._on_dock_visibility_changed)
+    
+    def _animate_dock_show(self) -> None:
+        """Animate dock widget sliding in."""
+        if self._dock_is_animating:
+            return
+        self._dock_is_animating = True
+        
+        self.project_dock.setMinimumWidth(0)
+        self.project_dock.setMaximumWidth(0)
+        self.project_dock.show()
+        
+        self._dock_animation = QVariantAnimation(self)
+        self._dock_animation.setStartValue(0)
+        self._dock_animation.setEndValue(self._dock_target_width)
+        self._dock_animation.setDuration(180)
+        self._dock_animation.setEasingCurve(QEasingCurve.Type.OutQuad)
+        self._dock_animation.valueChanged.connect(self._set_dock_width)
+        self._dock_animation.finished.connect(self._finish_dock_show)
+        self._dock_animation.start()
+    
+    def _animate_dock_hide(self) -> None:
+        """Animate dock widget sliding out."""
+        if self._dock_is_animating:
+            return
+        self._dock_is_animating = True
+        
+        self._dock_target_width = self.project_dock.width()
+        
+        self._dock_animation = QVariantAnimation(self)
+        self._dock_animation.setStartValue(self.project_dock.width())
+        self._dock_animation.setEndValue(0)
+        self._dock_animation.setDuration(150)
+        self._dock_animation.setEasingCurve(QEasingCurve.Type.InQuad)
+        self._dock_animation.valueChanged.connect(self._set_dock_width)
+        self._dock_animation.finished.connect(self._finish_dock_hide)
+        self._dock_animation.start()
+    
+    def _set_dock_width(self, width: int) -> None:
+        """Set dock width during animation."""
+        self.project_dock.setMinimumWidth(width)
+        self.project_dock.setMaximumWidth(width)
+    
+    def _finish_dock_show(self) -> None:
+        """Finish show animation - restore normal sizing."""
+        self.project_dock.setMinimumWidth(250)
+        self.project_dock.setMaximumWidth(16777215)
+        self._dock_is_animating = False
+    
+    def _finish_dock_hide(self) -> None:
+        """Finish hide animation."""
+        self.project_dock.hide()
+        self.project_dock.setMinimumWidth(250)
+        self.project_dock.setMaximumWidth(16777215)
+        self._dock_is_animating = False
     
     def _on_dock_visibility_changed(self, visible: bool) -> None:
         self.sidebar_toggle.setVisible(not visible)

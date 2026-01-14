@@ -294,15 +294,41 @@ class SnippetItem(QGraphicsRectItem):
             self.parent_node.update_layout()
     
     def _edit_text_content(self) -> None:
-        """Show dialog to edit text content."""
-        current = self.snippet_data.content
-        text, ok = QInputDialog.getMultiLineText(
-            None, "Edit Snippet",
-            "Content:",
-            current
+        """Show dialog to edit text content with word wrap."""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox
+        
+        dialog = QDialog()
+        dialog.setWindowTitle("Edit Snippet")
+        dialog.setMinimumSize(400, 300)
+        dialog.resize(500, 350)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Text edit with word wrap
+        text_edit = QTextEdit()
+        text_edit.setPlainText(self.snippet_data.content)
+        text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        text_edit.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Segoe UI', sans-serif;
+                font-size: 11pt;
+                padding: 8px;
+                border: 1px solid #E0E0E0;
+                border-radius: 4px;
+            }
+        """)
+        layout.addWidget(text_edit)
+        
+        # Buttons
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        if ok:
-            self.snippet_data.content = text
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.snippet_data.content = text_edit.toPlainText()
             self._update_geometry()
             self.update()
             self.parent_node.update_layout()
