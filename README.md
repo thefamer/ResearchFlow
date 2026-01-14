@@ -9,12 +9,18 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-3.0.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
   <img src="https://img.shields.io/badge/PyQt6-6.0+-purple.svg" alt="PyQt6">
 </p>
+
+<p align="center">
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download Pre-built .exe from Releases</strong></a>
+</p>
+
+> **💡 Just want it to work?** Pre-built **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -22,24 +28,36 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V2.1.0
+## ✨ What's New in V3.0.0
 
-### 🖼️ Enhanced Media & Layout
-- **Image Snippets**: Auto-scaling images that fit perfectly within nodes. Double-click to view in full-size.
-- **Dynamic Resizing**: Nodes can now be resized horizontally! Drag the handle at the bottom-right corner to adjust layout.
-- **Smart Wrapping**: Long text snippets now automatically wrap and calculate height accurately, adapting to the node's width.
+### 📦 Portable Executable
+- **One-Click .exe**: Download and run – no Python installation required!
+- **True Portable Design**: All project data stored next to the `.exe`, perfect for USB drives.
+- **PyInstaller Optimized**: Properly handles frozen environment paths.
 
-### 🎨 UI Refinements
-- **Polished Sidebar**: Improved toggle button interactions and layout.
-- **Design System**: Standardized horizontal scrolling and consistent icon usage.
+### 🧹 Code Quality
+- **Clean Codebase**: Removed unused imports and outdated version comments.
+- **Type Hints**: Enhanced type annotations throughout the codebase.
+- **Constants**: Replaced magic numbers with named constants.
 
-### ✨ Smooth Animations
-- **Animated Zoom**: Smooth, eased zoom transitions when scrolling for a premium feel.
-- **Sliding Sidebar**: The project dock slides in/out with fluid animation.
-- **Background Grid**: Subtle grid overlay on the canvas for easy node alignment.
+### 🎨 Polish
+- **Snippet Editor**: Text editing dialog now supports proper word wrap.
+- **Sidebar Animation**: Smoother slide-in/out transitions.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
+
+### V2.1.0
+
+#### 🖼️ Enhanced Media & Layout
+- **Image Snippets**: Auto-scaling images that fit perfectly within nodes. Double-click to view in full-size.
+- **Dynamic Resizing**: Nodes can now be resized horizontally! Drag the handle at the bottom-right corner to adjust layout.
+- **Smart Wrapping**: Long text snippets now automatically wrap and calculate height accurately.
+
+#### 🎨 UI Refinements
+- **Polished Sidebar**: Improved toggle button interactions and layout.
+- **Animated Zoom**: Smooth, eased zoom transitions when scrolling.
+- **Background Grid**: Subtle grid overlay on the canvas for easy node alignment.
 
 ### V2.0.0
 

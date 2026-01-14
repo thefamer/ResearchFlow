@@ -1073,7 +1073,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 2.1.0</p>"
+            "<p>Version 3.0.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"

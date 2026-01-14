@@ -1,4 +1,4 @@
-# ResearchFlow V2.1.0 Design System
+# ResearchFlow V3.0.0 Design System
 
 This document serves as the Single Source of Truth (SSOT) for the visual design and user interface interactions of ResearchFlow V2.0.0.
 
