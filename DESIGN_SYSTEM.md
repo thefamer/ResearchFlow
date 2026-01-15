@@ -1,10 +1,10 @@
 # ResearchFlow Design System
 
-This document serves as the Single Source of Truth (SSOT) for the visual design and user interface interactions of ResearchFlow V2.0.0.
+This document serves as the Single Source of Truth (SSOT) for the visual design and user interface interactions of ResearchFlow.
 
 ## 🎨 Design Philosophy
 **"Minimalist, Fluid, Content-First"**
-Inspired by **Notion** and **Apple** design principles, V2.0.0 aims to reduce visual clutter, favoring whitespace, clean typography, and subtle, meaningful animations over heavy skeumorphism or complex gradients.
+Inspired by **Notion** and **Apple** design principles, ResearchFlow aims to reduce visual clutter, favoring whitespace, clean typography, and subtle, meaningful animations over heavy skeumorphism or complex gradients.
 
 ---
 
