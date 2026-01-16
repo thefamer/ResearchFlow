@@ -89,19 +89,67 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ### 📄 Literature & Snippets
 - **Markdown Support**: Drag `.md` files to import papers as reference nodes.
-- **LaTeX Rendering**: Native rendering of formulas with automatic numbering.
-- **Multimedia**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
+- **PDF to Markdown**: We recommend using [MinerU](https://github.com/opendatalab/MinerU) to convert PDF papers to Markdown format for import.
+- **LaTeX Rendering**: Native rendering of inline `$math$` and block `$$math$$` formulas with automatic numbering.
+- **Multimedia Snippets**: Paste images (`Ctrl+V`) or drag them directly onto nodes.
+- **Snippet Management**: Reorder snippets with `↑`/`↓` keys, delete with `Delete`.
+- **Text Snippets**: Add text notes with support for Chinese characters (auto-fallback to Microsoft YaHei).
+
+### 🏷️ Organization
+- **Tag System**: Create, rename, and drag tags onto nodes. Click tags on nodes to remove them.
+- **TODOs**: Integrated task management within your project view.
 
 ---
 
 ## 🛠️ Installation
 
+### Prerequisites
+
+- Python 3.10 or higher
+- Windows 10/11 (primary platform)
+
+### Quick Install
+
 ```bash
+# Clone the repository
 git clone https://github.com/thefamer/ResearchFlow.git
 cd ResearchFlow
+
+# Install dependencies
 pip install -r requirements.txt
+```
+
+Or install dependencies manually:
+
+```bash
+pip install PyQt6 latex2mathml
+```
+
+### Running
+
+```bash
 python main.py
 ```
+
+### 📦 Building Portable .exe (Optional)
+
+Create a standalone portable executable that runs without Python installed:
+
+```bash
+pip install pyinstaller
+
+# Option 1: Single folder (recommended, faster startup)
+pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." ^
+    --collect-all latex2mathml --name="ResearchFlow" main.py
+
+# Option 2: Single file (slower startup, but just one file)
+pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." ^
+    --collect-all latex2mathml --name="ResearchFlow" main.py
+```
+
+The generated files will be in the `dist/` folder. 
+
+> **✅ True Portable**: The `projects/` data folder is automatically created next to the `.exe` file, not in any temp or system folder. Copy the folder and your `projects/` anywhere!
 
 ---
 
@@ -109,6 +157,15 @@ python main.py
 
 | Action | Shortcut / Gesture |
 |--------|-------------------|
+| **Delete** | `Delete` key (Nodes, Edges, Snippets) |
+| **Snap Move** | Hold `Shift` + Drag Node |
+| **Reorder Snippets** | `↑` / `↓` keys |
+| **Paste Image** | `Ctrl+V` (with node selected) |
+| **Pan Canvas** | Middle Mouse Button Drag |
+| **Zoom** | Mouse Wheel (Smooth animated) |
+| **Save Project** | `Ctrl+S` |
+| **New Project** | `Ctrl+N` |
+| **Open Project** | `Ctrl+O` |
 | **Undo** | `Ctrl+Z` |
 | **Redo** | `Ctrl+Y` / `Ctrl+Shift+Z` |
 | **Delete** | `Delete` key |
@@ -131,9 +188,74 @@ ResearchFlow/
 ├── widgets.py           # Custom UI (Sidebar, Color Palette, Tags)
 ├── utils.py             # Theme & Project Logic
 └── projects/            # Local Data Storage
+    └── <project_name>/
+        ├── project_data.json
+        └── assets/
+            ├── papers/
+            └── images/
 ```
 
 ---
 
+## 🔧 Technology Stack
+
+| Component | Technology |
+|-----------|------------|
+| **Language** | Python 3.10+ |
+| **UI Framework** | PyQt6 |
+| **Math Rendering** | latex2mathml |
+| **Data Storage** | JSON (portable, no database) |
+| **Graphics** | QGraphicsView Framework |
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/AmazingFeature`)
+3. **Commit** your changes (`git commit -m 'Add some AmazingFeature'`)
+4. **Push** to the branch (`git push origin feature/AmazingFeature`)
+5. **Open** a Pull Request
+
+### Development Notes
+
+- Follow PEP 8 style guidelines
+- Add type hints to new functions
+- Update documentation for new features
+- Test on Windows before submitting
+
+---
+
+## 📋 Roadmap
+
+- [ ] macOS / Linux support
+- [ ] Export to PNG / PDF
+- [ ] Cloud sync integration
+- [ ] Plugin system
+- [ ] Dark theme
+
+---
+
 ## 📄 License
-MIT License. Made with ❤️ for researchers everywhere.
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- Inspired by [Notion](https://notion.so) and [Obsidian](https://obsidian.md)
+- Built with [PyQt6](https://www.riverbankcomputing.com/software/pyqt/)
+- Icons and design inspired by Apple Human Interface Guidelines
+
+---
+
+<p align="center">
+  Made with ❤️ for researchers everywhere
+</p>
+
+<p align="center">
+  <a href="#researchflow">Back to Top ↑</a>
+</p>
