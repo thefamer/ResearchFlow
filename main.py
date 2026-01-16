@@ -42,7 +42,9 @@ from undo import (
     AddNodeCommand, RemoveNodeCommand, NodePositionCommand,
     AddEdgeCommand, RemoveEdgeCommand,
     AddGroupCommand, RemoveGroupCommand, GroupMoveCommand, NodeGroupChangeCommand,
-    GlobalEdgeColorChangeCommand, ModulePaletteColorChangeCommand
+    GlobalEdgeColorChangeCommand, ModulePaletteColorChangeCommand,
+    SnippetAddCommand, SnippetRemoveCommand, SnippetEditCommand, SnippetMoveCommand,
+    NodeMetadataEditCommand, GroupNameEditCommand, GroupSizeCommand, NodeTagToggleCommand
 )
 
 
@@ -58,12 +60,26 @@ class ResearchScene(QGraphicsScene):
     node_added_requested = pyqtSignal(dict)
     node_removed_requested = pyqtSignal(dict, list)
     node_moved_requested = pyqtSignal(str, tuple, tuple)
-    edge_added_requested = pyqtSignal(dict)
+    edge_added_requested = pyqtSignal(dict, str, list)  # edge_data, target_node_id, cloned_snippet_ids
     edge_removed_requested = pyqtSignal(dict)
     group_added_requested = pyqtSignal(dict)
     group_removed_requested = pyqtSignal(dict)
     group_moved_requested = pyqtSignal(str, tuple, tuple)
     node_group_changed = pyqtSignal(str, object, object)  # node_id, old_group_id, new_group_id
+    
+    # V3.9.0: Snippet undo signals
+    snippet_add_requested = pyqtSignal(str, dict)  # node_id, snippet_data
+    snippet_remove_requested = pyqtSignal(str, dict, int)  # node_id, snippet_data, index
+    snippet_move_requested = pyqtSignal(str, str, int, int)  # node_id, snippet_id, from, to
+    snippet_edit_requested = pyqtSignal(str, str, str, str, str)  # node_id, snippet_id, field, old, new
+    
+    # V3.9.0: Node metadata edit signal
+    metadata_edit_requested = pyqtSignal(str, str, str, str)  # node_id, field, old_value, new_value
+    
+    # V3.9.0: Tag toggle and group name edit signals
+    tag_toggle_requested = pyqtSignal(str, str, bool)  # node_id, tag_name, was_added
+    group_name_edit_requested = pyqtSignal(str, str, str)  # group_id, old_name, new_name
+    group_size_requested = pyqtSignal(str, tuple, tuple)  # group_id, old_rect, new_rect
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -149,6 +165,18 @@ class ResearchScene(QGraphicsScene):
         node.signals.expand_requested.connect(self._on_expand_requested)
         # Handle drag finish for grouping AND undo (V3.9.0)
         node.signals.drag_finished.connect(self._on_node_interaction_finished)
+        
+        # V3.9.0: Connect snippet undo signals
+        node.signals.snippet_add_requested.connect(self._on_snippet_add_requested)
+        node.signals.snippet_remove_requested.connect(self._on_snippet_remove_requested)
+        node.signals.snippet_move_requested.connect(self._on_snippet_move_requested)
+        node.signals.snippet_edit_requested.connect(self._on_snippet_edit_requested)
+        
+        # V3.9.0: Connect metadata edit signal
+        node.signals.metadata_edit_requested.connect(self._on_metadata_edit_requested)
+        
+        # V3.9.0: Connect tag toggle signal
+        node.signals.tag_toggle_requested.connect(self._on_tag_toggle_requested)
     
     def _on_node_interaction_finished(self, node_id: str, modifiers) -> None:
         """Handle node drag/interaction end."""
@@ -209,14 +237,18 @@ class ResearchScene(QGraphicsScene):
             
             self.removeItem(node)
     
-    def add_edge(self, source_id: str, target_id: str, edge_id: str = None) -> Optional[EdgeItem]:
-        """Create an edge (Gatekeeper)."""
+    def add_edge(self, source_id: str, target_id: str, edge_id: str = None,
+                 target_node_id: str = "", cloned_snippet_ids: list = None) -> Optional[EdgeItem]:
+        """Create an edge (Gatekeeper).
+        For Reference→Pipeline connections, target_node_id and cloned_snippet_ids
+        are used to support undo of snippet cloning.
+        """
         if self._is_undo_operation:
             return self._add_edge_internal(source_id, target_id, edge_id)
         else:
             edge_id = edge_id or generate_uuid()
             data = {"source_id": source_id, "target_id": target_id, "id": edge_id}
-            self.edge_added_requested.emit(data)
+            self.edge_added_requested.emit(data, target_node_id or "", cloned_snippet_ids or [])
             # Return edge if created synchronously
             return self._edges.get(edge_id)
 
@@ -410,6 +442,9 @@ class ResearchScene(QGraphicsScene):
         group.signals.drag_finished.connect(self._on_group_drag_finished)
         group.signals.node_added.connect(self._on_group_node_added)
         group.signals.node_removed.connect(self._on_group_node_removed)
+        # V3.9.0: Connect group name and size edit signals
+        group.signals.name_edit_requested.connect(self._on_group_name_edit_requested)
+        group.signals.size_resize_requested.connect(self._on_group_size_requested)
         group.setZValue(-1)
 
     def remove_group(self, group_id: str) -> None:
@@ -479,14 +514,18 @@ class ResearchScene(QGraphicsScene):
                         return False  # Already has outgoing
             
             # Deep copy snippets only when connecting Reference → Pipeline
+            cloned_snippet_ids = []
+            target_node_id = ""
             if isinstance(source, ReferenceNodeItem) and isinstance(target, PipelineModuleItem):
                 snippets = source.get_snippets_data()
                 if snippets:
-                    target.add_cloned_snippets(snippets, source.get_title())
+                    cloned_snippet_ids = target.add_cloned_snippets(snippets, source.get_title())
+                    target_node_id = target.node_data.id
             
-            # Create edge for any connection type
+            # Create edge for any connection type (with cloned snippet info)
             edge_id = generate_uuid()
-            self.add_edge(source.node_data.id, target.node_data.id, edge_id)
+            self.add_edge(source.node_data.id, target.node_data.id, edge_id,
+                         target_node_id, cloned_snippet_ids)
             
             self.cancel_connection()
             return True
@@ -527,6 +566,31 @@ class ResearchScene(QGraphicsScene):
                             self.views()[0] if self.views() else None
                         )
                         dialog.show()
+    
+    # V3.9.0: Snippet signal handlers (forward to scene-level signals)
+    def _on_snippet_add_requested(self, node_id: str, snippet_data: dict) -> None:
+        self.snippet_add_requested.emit(node_id, snippet_data)
+    
+    def _on_snippet_remove_requested(self, node_id: str, snippet_data: dict, index: int) -> None:
+        self.snippet_remove_requested.emit(node_id, snippet_data, index)
+    
+    def _on_snippet_move_requested(self, node_id: str, snippet_id: str, from_idx: int, to_idx: int) -> None:
+        self.snippet_move_requested.emit(node_id, snippet_id, from_idx, to_idx)
+    
+    def _on_snippet_edit_requested(self, node_id: str, snippet_id: str, field: str, old: str, new: str) -> None:
+        self.snippet_edit_requested.emit(node_id, snippet_id, field, old, new)
+    
+    def _on_metadata_edit_requested(self, node_id: str, field: str, old: str, new: str) -> None:
+        self.metadata_edit_requested.emit(node_id, field, old, new)
+    
+    def _on_tag_toggle_requested(self, node_id: str, tag_name: str, was_added: bool) -> None:
+        self.tag_toggle_requested.emit(node_id, tag_name, was_added)
+    
+    def _on_group_name_edit_requested(self, group_id: str, old_name: str, new_name: str) -> None:
+        self.group_name_edit_requested.emit(group_id, old_name, new_name)
+    
+    def _on_group_size_requested(self, group_id: str, old_rect: tuple, new_rect: tuple) -> None:
+        self.group_size_requested.emit(group_id, old_rect, new_rect)
     
     def clear_all(self) -> None:
         """Clear all items from the scene."""
@@ -581,6 +645,9 @@ class ResearchScene(QGraphicsScene):
             group.signals.drag_finished.connect(self._on_group_drag_finished)
             group.signals.node_added.connect(self._on_group_node_added)
             group.signals.node_removed.connect(self._on_group_node_removed)
+            # V3.9.0: Connect group name and size edit signals
+            group.signals.name_edit_requested.connect(self._on_group_name_edit_requested)
+            group.signals.size_resize_requested.connect(self._on_group_size_requested)
         
         # Create nodes and waypoints
         for node_data in data.nodes:
@@ -1176,6 +1243,20 @@ class MainWindow(QMainWindow):
         self.scene.group_moved_requested.connect(self._on_group_moved)
         self.scene.node_group_changed.connect(self._on_node_group_changed)
         
+        # V3.9.0: Connect Snippet signals for Undo/Redo
+        self.scene.snippet_add_requested.connect(self._on_snippet_add)
+        self.scene.snippet_remove_requested.connect(self._on_snippet_remove)
+        self.scene.snippet_move_requested.connect(self._on_snippet_move)
+        self.scene.snippet_edit_requested.connect(self._on_snippet_edit)
+        
+        # V3.9.0: Connect Node metadata edit signal
+        self.scene.metadata_edit_requested.connect(self._on_metadata_edit)
+        
+        # V3.9.0: Connect tag toggle and group name/size edit signals
+        self.scene.tag_toggle_requested.connect(self._on_tag_toggle)
+        self.scene.group_name_edit_requested.connect(self._on_group_name_edit)
+        self.scene.group_size_requested.connect(self._on_group_size_edit)
+        
         # Project dock (Replaces Tag dock)
         self.project_dock = ProjectDockWidget(self)
         # Tag signals (Undo/Redo)
@@ -1625,8 +1706,9 @@ class MainWindow(QMainWindow):
             cmd = NodePositionCommand(self, node_id, old_pos[0], old_pos[1], new_pos[0], new_pos[1])
             self.undo_manager.execute(cmd)
             
-    def _on_edge_added(self, edge_data_dict: dict):
-        cmd = AddEdgeCommand(self, edge_data_dict)
+    def _on_edge_added(self, edge_data_dict: dict, target_node_id: str = "", cloned_snippet_ids: list = None):
+        """Handle edge added with optional cloned snippet info."""
+        cmd = AddEdgeCommand(self, edge_data_dict, target_node_id, cloned_snippet_ids or [])
         self.undo_manager.execute(cmd)
         
     def _on_edge_removed(self, edge_data_dict: dict):
@@ -1649,6 +1731,48 @@ class MainWindow(QMainWindow):
     def _on_node_group_changed(self, node_id: str, old_group_id, new_group_id):
         """Handle node added/removed from group for undo."""
         cmd = NodeGroupChangeCommand(self, node_id, old_group_id, new_group_id)
+        self.undo_manager.execute(cmd)
+    
+    # --- V3.9.0: Snippet Undo/Redo Handlers ---
+    
+    def _on_snippet_add(self, node_id: str, snippet_data: dict):
+        """Handle snippet add request."""
+        cmd = SnippetAddCommand(self, node_id, snippet_data)
+        self.undo_manager.execute(cmd)
+    
+    def _on_snippet_remove(self, node_id: str, snippet_data: dict, index: int):
+        """Handle snippet remove request."""
+        cmd = SnippetRemoveCommand(self, node_id, snippet_data, index)
+        self.undo_manager.execute(cmd)
+    
+    def _on_snippet_move(self, node_id: str, snippet_id: str, from_idx: int, to_idx: int):
+        """Handle snippet move request."""
+        cmd = SnippetMoveCommand(self, node_id, snippet_id, from_idx, to_idx)
+        self.undo_manager.execute(cmd)
+    
+    def _on_snippet_edit(self, node_id: str, snippet_id: str, field: str, old_val: str, new_val: str):
+        """Handle snippet edit request."""
+        cmd = SnippetEditCommand(self, node_id, snippet_id, field, old_val, new_val)
+        self.undo_manager.execute(cmd)
+    
+    def _on_metadata_edit(self, node_id: str, field: str, old_val: str, new_val: str):
+        """Handle node metadata edit request."""
+        cmd = NodeMetadataEditCommand(self, node_id, field, old_val, new_val)
+        self.undo_manager.execute(cmd)
+    
+    def _on_tag_toggle(self, node_id: str, tag_name: str, was_added: bool):
+        """Handle node tag toggle request (add/remove tag from node)."""
+        cmd = NodeTagToggleCommand(self, node_id, tag_name, was_added)
+        self.undo_manager.execute(cmd)
+    
+    def _on_group_name_edit(self, group_id: str, old_name: str, new_name: str):
+        """Handle group name edit request."""
+        cmd = GroupNameEditCommand(self, group_id, old_name, new_name)
+        self.undo_manager.execute(cmd)
+    
+    def _on_group_size_edit(self, group_id: str, old_rect: tuple, new_rect: tuple):
+        """Handle group size edit request."""
+        cmd = GroupSizeCommand(self, group_id, old_rect, new_rect)
         self.undo_manager.execute(cmd)
     
     def _new_project(self) -> None:
@@ -1830,7 +1954,7 @@ class MainWindow(QMainWindow):
         """Sync all tag colors from dock to nodes (called after project load)."""
         # Build tag color map from dock
         tag_colors = {}
-        for tag_data in self.project_dock._tags:
+        for tag_data in self.project_dock.get_tags():
             color = tag_data.get("color")
             if color:
                 tag_colors[tag_data["name"]] = color

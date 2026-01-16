@@ -918,14 +918,11 @@ class ProjectDockWidget(QDockWidget):
     def move_tag(self, from_index: int, to_index: int) -> None:
         """Move tag from index to index."""
         if 0 <= from_index < len(self._tags) and 0 <= to_index < len(self._tags):
-             # Swap in data
-            self._tags[from_index], self._tags[to_index] = self._tags[to_index], self._tags[from_index] # Not swap, insert/pop
-            
-            # Actually move logic is usually: pop then insert
-            # Correct logic:
+            # Move in data list
             tag_data = self._tags.pop(from_index)
             self._tags.insert(to_index, tag_data)
             
+            # Move in widget list
             widget = self._tag_widgets.pop(from_index)
             self._tag_widgets.insert(to_index, widget)
             

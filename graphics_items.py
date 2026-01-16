@@ -58,13 +58,25 @@ class Colors:
 class NodeSignals(QObject):
     """Signals emitted by node items."""
     position_changed = pyqtSignal(str, float, float)  # node_id, x, y
-    snippet_added = pyqtSignal(str)  # node_id
-    snippet_removed = pyqtSignal(str, str)  # node_id, snippet_id
+    snippet_added = pyqtSignal(str)  # node_id (legacy, for auto-save)
+    snippet_removed = pyqtSignal(str, str)  # node_id, snippet_id (legacy)
     expand_requested = pyqtSignal(str)  # node_id
     connection_started = pyqtSignal(str)  # source_node_id
     connection_completed = pyqtSignal(str, str)  # source_node_id, target_node_id
     data_changed = pyqtSignal(str)  # node_id
     drag_finished = pyqtSignal(str, object)  # node_id, modifiers (for group logic V3.5.0)
+    
+    # V3.9.0: Snippet undo/redo request signals
+    snippet_add_requested = pyqtSignal(str, dict)  # node_id, snippet_data
+    snippet_remove_requested = pyqtSignal(str, dict, int)  # node_id, snippet_data, index
+    snippet_edit_requested = pyqtSignal(str, str, str, str, str)  # node_id, snippet_id, field, old, new
+    snippet_move_requested = pyqtSignal(str, str, int, int)  # node_id, snippet_id, from, to
+    
+    # V3.9.0: Node metadata edit signal
+    metadata_edit_requested = pyqtSignal(str, str, str, str)  # node_id, field, old_value, new_value
+    
+    # V3.9.0: Node tag toggle signal
+    tag_toggle_requested = pyqtSignal(str, str, bool)  # node_id, tag_name, was_added
 
 
 # ============================================================================
@@ -281,23 +293,29 @@ class SnippetItem(QGraphicsRectItem):
         super().mouseDoubleClickEvent(event)
     
     def _edit_source_label(self) -> None:
-        """Show dialog to edit source label."""
-        current = self.snippet_data.source_label
+        """Show dialog to edit source label (emit request for undo)."""
+        current = self.snippet_data.source_label or ""
         text, ok = QInputDialog.getText(
             None, "Edit Source Label",
             "Source Label:",
             QLineEdit.EchoMode.Normal,
             current
         )
-        if ok:
-            self.snippet_data.source_label = text
-            self._update_geometry()
-            self.update()
-            self.parent_node.update_layout()
+        if ok and text != current:
+            # Emit edit request signal
+            self.parent_node.signals.snippet_edit_requested.emit(
+                self.parent_node.node_data.id,
+                self.snippet_data.id,
+                "source_label",
+                current,
+                text
+            )
     
     def _edit_text_content(self) -> None:
-        """Show dialog to edit text content with word wrap."""
+        """Show dialog to edit text content with word wrap (emit request for undo)."""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QDialogButtonBox
+        
+        old_content = self.snippet_data.content
         
         dialog = QDialog()
         dialog.setWindowTitle("Edit Snippet")
@@ -308,7 +326,7 @@ class SnippetItem(QGraphicsRectItem):
         
         # Text edit with word wrap
         text_edit = QTextEdit()
-        text_edit.setPlainText(self.snippet_data.content)
+        text_edit.setPlainText(old_content)
         text_edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         text_edit.setStyleSheet("""
             QTextEdit {
@@ -330,10 +348,16 @@ class SnippetItem(QGraphicsRectItem):
         layout.addWidget(buttons)
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.snippet_data.content = text_edit.toPlainText()
-            self._update_geometry()
-            self.update()
-            self.parent_node.update_layout()
+            new_content = text_edit.toPlainText()
+            if new_content != old_content:
+                # Emit edit request signal
+                self.parent_node.signals.snippet_edit_requested.emit(
+                    self.parent_node.node_data.id,
+                    self.snippet_data.id,
+                    "content",
+                    old_content,
+                    new_content
+                )
     
     def get_height(self) -> float:
         """Get the current height of this snippet."""
@@ -588,10 +612,26 @@ class BaseNodeItem(QGraphicsRectItem):
         self._tag_badges.clear()
         
         for tag in self.node_data.tags:
-            badge = TagBadge(tag, self)
+            color = self._get_tag_color(tag)
+            badge = TagBadge(tag, self, color)
             self._tag_badges.append(badge)
         
         self._layout_tags()
+    
+    def _get_tag_color(self, tag_name: str) -> Optional[str]:
+        """Get tag color from the main window's global tags."""
+        scene = self.scene()
+        if scene:
+            # Try to get main window from scene's views
+            views = scene.views()
+            if views:
+                main_window = views[0].parent()
+                if main_window and hasattr(main_window, 'project_dock'):
+                    tags = main_window.project_dock.get_tags()
+                    for t in tags:
+                        if t.get('name') == tag_name:
+                            return t.get('color')
+        return None
     
     def _layout_tags(self) -> None:
         """Position tag badges horizontally below header."""
@@ -811,16 +851,44 @@ class BaseNodeItem(QGraphicsRectItem):
         
         menu.exec(event.screenPos())
     
+    _is_undo_operation = False  # V3.9.0: Flag for undo/redo bypass
+    
     def _add_text_snippet(self) -> None:
-        """Add a new empty text snippet."""
+        """Add a new empty text snippet (emit request for undo)."""
+        from models import Snippet
         snippet = Snippet(type="text", content="")
+        # Emit request signal with serialized data
+        self.signals.snippet_add_requested.emit(self.node_data.id, snippet.to_dict())
+    
+    def add_snippet_internal(self, snippet_data: dict) -> None:
+        """Internal: Actually add snippet (called by command)."""
+        from models import Snippet
+        snippet = Snippet.from_dict(snippet_data)
         self.node_data.snippets.append(snippet)
         
         item = SnippetItem(snippet, self)
         self._snippet_items.append(item)
         
         self.update_layout()
-        self.signals.snippet_added.emit(self.node_data.id)
+        self.signals.data_changed.emit(self.node_data.id)
+    
+    def remove_snippet_internal(self, snippet_id: str) -> None:
+        """Internal: Remove snippet by ID (for undo support)."""
+        # Find and remove from data
+        for i, snippet in enumerate(self.node_data.snippets):
+            if snippet.id == snippet_id:
+                self.node_data.snippets.pop(i)
+                break
+        
+        # Find and remove from items
+        for item in self._snippet_items:
+            if item.snippet_data.id == snippet_id:
+                if item.scene():
+                    item.scene().removeItem(item)
+                self._snippet_items.remove(item)
+                break
+        
+        self.update_layout()
         self.signals.data_changed.emit(self.node_data.id)
     
     def _toggle_lock(self) -> None:
@@ -830,21 +898,20 @@ class BaseNodeItem(QGraphicsRectItem):
         self.signals.data_changed.emit(self.node_data.id)
     
     def add_image_snippet(self, relative_path: str) -> None:
-        """Add an image snippet with the given path."""
+        """Add an image snippet with the given path (emit request for undo)."""
+        from models import Snippet
         snippet = Snippet(type="image", content=relative_path)
-        self.node_data.snippets.append(snippet)
-        
-        item = SnippetItem(snippet, self)
-        self._snippet_items.append(item)
-        
-        self.update_layout()
-        self.signals.snippet_added.emit(self.node_data.id)
-        self.signals.data_changed.emit(self.node_data.id)
+        # Emit request signal
+        self.signals.snippet_add_requested.emit(self.node_data.id, snippet.to_dict())
     
-    def add_cloned_snippets(self, source_snippets: list[Snippet], source_title: str) -> None:
-        """Add deep-copied snippets from another node."""
+    def add_cloned_snippets(self, source_snippets: list[Snippet], source_title: str) -> list[str]:
+        """Add deep-copied snippets from another node.
+        Returns list of cloned snippet IDs (for undo support).
+        """
+        cloned_ids = []
         for snippet in source_snippets:
             cloned = snippet.deep_copy(source_title)
+            cloned_ids.append(cloned.id)
             self.node_data.snippets.append(cloned)
             
             item = SnippetItem(cloned, self)
@@ -852,19 +919,33 @@ class BaseNodeItem(QGraphicsRectItem):
         
         self.update_layout()
         self.signals.data_changed.emit(self.node_data.id)
+        return cloned_ids
     
     def add_tag(self, tag_name: str) -> None:
-        """Assign a tag to this node."""
+        """Assign a tag to this node (emit request for undo)."""
+        if tag_name not in self.node_data.tags:
+            # Emit toggle request for undo
+            self.signals.tag_toggle_requested.emit(self.node_data.id, tag_name, True)
+    
+    def add_tag_internal(self, tag_name: str) -> None:
+        """Internal: Actually add tag (called by command)."""
         if tag_name not in self.node_data.tags:
             self.node_data.tags.append(tag_name)
-            badge = TagBadge(tag_name, self)
+            color = self._get_tag_color(tag_name)
+            badge = TagBadge(tag_name, self, color)
             self._tag_badges.append(badge)
             self._layout_tags()
             self.update_layout()
             self.signals.data_changed.emit(self.node_data.id)
     
     def remove_tag(self, tag_name: str) -> None:
-        """Remove a tag from this node."""
+        """Remove a tag from this node (emit request for undo)."""
+        if tag_name in self.node_data.tags:
+            # Emit toggle request for undo
+            self.signals.tag_toggle_requested.emit(self.node_data.id, tag_name, False)
+    
+    def remove_tag_internal(self, tag_name: str) -> None:
+        """Internal: Actually remove tag (called by command)."""
         if tag_name in self.node_data.tags:
             self.node_data.tags.remove(tag_name)
             self._rebuild_tags()
@@ -895,56 +976,59 @@ class BaseNodeItem(QGraphicsRectItem):
         self.update()
     
     def remove_snippet(self, snippet_item: "SnippetItem") -> None:
-        """Remove a snippet from this node."""
+        """Remove a snippet from this node (emit request for undo)."""
         if snippet_item in self._snippet_items:
-            # Remove from data
-            if snippet_item.snippet_data in self.node_data.snippets:
-                self.node_data.snippets.remove(snippet_item.snippet_data)
-            
-            # Remove from UI
-            self._snippet_items.remove(snippet_item)
-            if snippet_item.scene():
-                snippet_item.scene().removeItem(snippet_item)
-            
-            self.update_layout()
-            self.signals.snippet_removed.emit(self.node_data.id, snippet_item.snippet_data.id)
-            self.signals.data_changed.emit(self.node_data.id)
+            idx = self._snippet_items.index(snippet_item)
+            snippet_data = snippet_item.snippet_data.to_dict()
+            self.signals.snippet_remove_requested.emit(self.node_data.id, snippet_data, idx)
+    
+    def remove_snippet_internal(self, snippet_id: str) -> None:
+        """Internal: Actually remove snippet by ID (called by command)."""
+        for i, snip in enumerate(self.node_data.snippets):
+            if snip.id == snippet_id:
+                self.node_data.snippets.pop(i)
+                break
+        
+        for i, item in enumerate(self._snippet_items):
+            if item.snippet_data.id == snippet_id:
+                if item.scene():
+                    item.scene().removeItem(item)
+                self._snippet_items.pop(i)
+                break
+        
+        self.update_layout()
+        self.signals.data_changed.emit(self.node_data.id)
     
     def move_snippet_up(self, snippet_item: "SnippetItem") -> None:
-        """Move a snippet up in the list."""
+        """Move a snippet up in the list (emit request for undo)."""
         if snippet_item in self._snippet_items:
             idx = self._snippet_items.index(snippet_item)
             if idx > 0:
-                # Swap in UI list
-                self._snippet_items[idx], self._snippet_items[idx-1] = \
-                    self._snippet_items[idx-1], self._snippet_items[idx]
-                
-                # Swap in data list
-                data_idx = self.node_data.snippets.index(snippet_item.snippet_data)
-                if data_idx > 0:
-                    self.node_data.snippets[data_idx], self.node_data.snippets[data_idx-1] = \
-                        self.node_data.snippets[data_idx-1], self.node_data.snippets[data_idx]
-                
-                self.update_layout()
-                self.signals.data_changed.emit(self.node_data.id)
+                self.signals.snippet_move_requested.emit(
+                    self.node_data.id, snippet_item.snippet_data.id, idx, idx - 1)
     
     def move_snippet_down(self, snippet_item: "SnippetItem") -> None:
-        """Move a snippet down in the list."""
+        """Move a snippet down in the list (emit request for undo)."""
         if snippet_item in self._snippet_items:
             idx = self._snippet_items.index(snippet_item)
             if idx < len(self._snippet_items) - 1:
-                # Swap in UI list
-                self._snippet_items[idx], self._snippet_items[idx+1] = \
-                    self._snippet_items[idx+1], self._snippet_items[idx]
-                
-                # Swap in data list
-                data_idx = self.node_data.snippets.index(snippet_item.snippet_data)
-                if data_idx < len(self.node_data.snippets) - 1:
-                    self.node_data.snippets[data_idx], self.node_data.snippets[data_idx+1] = \
-                        self.node_data.snippets[data_idx+1], self.node_data.snippets[data_idx]
-                
-                self.update_layout()
-                self.signals.data_changed.emit(self.node_data.id)
+                self.signals.snippet_move_requested.emit(
+                    self.node_data.id, snippet_item.snippet_data.id, idx, idx + 1)
+    
+    def move_snippet_internal(self, from_idx: int, to_idx: int) -> None:
+        """Internal: Actually move snippet (called by command)."""
+        if 0 <= from_idx < len(self.node_data.snippets):
+            # Move in data list
+            snippet = self.node_data.snippets.pop(from_idx)
+            self.node_data.snippets.insert(to_idx, snippet)
+            
+            # Move in item list
+            if 0 <= from_idx < len(self._snippet_items):
+                item = self._snippet_items.pop(from_idx)
+                self._snippet_items.insert(to_idx, item)
+            
+            self.update_layout()
+            self.signals.data_changed.emit(self.node_data.id)
 
 
 # ============================================================================
@@ -1098,18 +1182,19 @@ class PipelineModuleItem(BaseNodeItem):
             painter.setClipping(False)
     
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        """Edit module name on double-click header."""
+        """Edit module name on double-click header (emit request for undo)."""
         if event.pos().y() < self.HEADER_HEIGHT:
+            old_name = self.node_data.metadata.module_name
             text, ok = QInputDialog.getText(
                 None, "Edit Module Name",
                 "Module Name:",
                 QLineEdit.EchoMode.Normal,
-                self.node_data.metadata.module_name
+                old_name
             )
-            if ok and text:
-                self.node_data.metadata.module_name = text
-                self.update()
-                self.signals.data_changed.emit(self.node_data.id)
+            if ok and text and text != old_name:
+                # Emit edit request signal for undo
+                self.signals.metadata_edit_requested.emit(
+                    self.node_data.id, "module_name", old_name, text)
         else:
             super().mouseDoubleClickEvent(event)
 
@@ -1476,38 +1561,40 @@ class ReferenceNodeItem(BaseNodeItem):
             # Determine which field to edit based on y position
             if event.pos().y() < 30:
                 # Edit title
+                old_title = self.node_data.metadata.title or ""
                 text, ok = QInputDialog.getText(
                     None, "Edit Title",
                     "Paper Title:",
                     QLineEdit.EchoMode.Normal,
-                    self.node_data.metadata.title
+                    old_title
                 )
-                if ok and text:
-                    self.node_data.metadata.title = text
-                    self.update()
-                    self.signals.data_changed.emit(self.node_data.id)
+                if ok and text and text != old_title:
+                    self.signals.metadata_edit_requested.emit(
+                        self.node_data.id, "title", old_title, text)
             else:
-                # Edit year/conference
+                # Edit year
+                old_year = self.node_data.metadata.year or ""
                 year, ok = QInputDialog.getText(
                     None, "Edit Year",
                     "Year:",
                     QLineEdit.EchoMode.Normal,
-                    self.node_data.metadata.year
+                    old_year
                 )
-                if ok:
-                    self.node_data.metadata.year = year
+                if ok and year != old_year:
+                    self.signals.metadata_edit_requested.emit(
+                        self.node_data.id, "year", old_year, year)
                 
+                # Edit conference
+                old_conf = self.node_data.metadata.conference or ""
                 conf, ok = QInputDialog.getText(
                     None, "Edit Conference",
                     "Conference/Journal:",
                     QLineEdit.EchoMode.Normal,
-                    self.node_data.metadata.conference
+                    old_conf
                 )
-                if ok:
-                    self.node_data.metadata.conference = conf
-                
-                self.update()
-                self.signals.data_changed.emit(self.node_data.id)
+                if ok and conf != old_conf:
+                    self.signals.metadata_edit_requested.emit(
+                        self.node_data.id, "conference", old_conf, conf)
         else:
             super().mouseDoubleClickEvent(event)
     
@@ -1786,6 +1873,12 @@ class GroupSignals(QObject):
     name_changed = pyqtSignal(str, str)  # group_id, new_name
     node_added = pyqtSignal(str, str)  # group_id, node_id
     node_removed = pyqtSignal(str, str)  # group_id, node_id
+    
+    # V3.9.0: Group name edit request for undo
+    name_edit_requested = pyqtSignal(str, str, str)  # group_id, old_name, new_name
+    
+    # V3.9.0: Group size change request for undo
+    size_resize_requested = pyqtSignal(str, tuple, tuple)  # group_id, old_rect, new_rect
 
 
 class GroupItem(QGraphicsRectItem):
@@ -1904,6 +1997,13 @@ class GroupItem(QGraphicsRectItem):
                 self._resize_handle = handle
                 self._drag_start_pos = event.scenePos()
                 self._drag_start_rect = self.rect()
+                # V3.9.0: Capture initial state for undo
+                self._resize_start_state = (
+                    self.pos().x() + self.rect().x(),
+                    self.pos().y() + self.rect().y(),
+                    self.rect().width(),
+                    self.rect().height()
+                )
                 event.accept()
                 return
             else:
@@ -1950,11 +2050,23 @@ class GroupItem(QGraphicsRectItem):
             self._resize_handle = None
             # Update data
             rect = self.rect()
+            new_x = self.pos().x() + rect.x()
+            new_y = self.pos().y() + rect.y()
+            new_rect = (new_x, new_y, rect.width(), rect.height())
+            
+            # V3.9.0: Emit resize signal for undo if size changed
+            if hasattr(self, '_resize_start_state') and self._resize_start_state != new_rect:
+                self.signals.size_resize_requested.emit(
+                    self.group_data.id,
+                    self._resize_start_state,
+                    new_rect
+                )
+            
+            # Apply to data
             self.group_data.width = rect.width()
             self.group_data.height = rect.height()
-            # Adjust position if top-left moved
-            self.group_data.position.x = self.pos().x() + rect.x()
-            self.group_data.position.y = self.pos().y() + rect.y()
+            self.group_data.position.x = new_x
+            self.group_data.position.y = new_y
             self.signals.size_changed.emit(self.group_data.id, rect.width(), rect.height())
             event.accept()
             return
@@ -1969,18 +2081,18 @@ class GroupItem(QGraphicsRectItem):
         super().mouseReleaseEvent(event)
     
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        """Double-click to edit group name."""
+        """Double-click to edit group name (emit request for undo)."""
         if event.pos().y() < self.TITLE_HEIGHT:
+            old_name = self.group_data.name
             text, ok = QInputDialog.getText(
                 None, "Edit Group Name",
                 "Group Name:",
                 QLineEdit.EchoMode.Normal,
-                self.group_data.name
+                old_name
             )
-            if ok and text:
-                self.group_data.name = text
-                self.update()
-                self.signals.name_changed.emit(self.group_data.id, text)
+            if ok and text and text != old_name:
+                # Emit edit request signal for undo
+                self.signals.name_edit_requested.emit(self.group_data.id, old_name, text)
         super().mouseDoubleClickEvent(event)
     
     def contextMenuEvent(self, event) -> None:

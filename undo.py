@@ -335,10 +335,21 @@ class TagColorChangeCommand(Command):
     def execute(self) -> None:
         if hasattr(self.context, 'project_dock'):
             self.context.project_dock.set_tag_color(self.tag_name, self.new_color)
+            self._sync_to_nodes(self.new_color)
             
     def undo(self) -> None:
         if hasattr(self.context, 'project_dock'):
             self.context.project_dock.set_tag_color(self.tag_name, self.old_color)
+            self._sync_to_nodes(self.old_color)
+    
+    def _sync_to_nodes(self, color: str) -> None:
+        """Sync tag color to all nodes that have this tag."""
+        if hasattr(self.context, 'scene'):
+            for node in self.context.scene._nodes.values():
+                if self.tag_name in node.node_data.tags:
+                    for badge in node._tag_badges:
+                        if badge.tag_name == self.tag_name:
+                            badge.set_color(color)
     
     def to_dict(self) -> dict:
         return {
@@ -439,6 +450,229 @@ class NodePositionCommand(Command):
             new_y=data["new_y"]
         )
 
+
+# ============================================================================
+# Snippet Commands (V3.9.0)
+# ============================================================================
+
+@dataclass
+class SnippetAddCommand(Command):
+    """Command for adding a snippet to a node."""
+    context: Any
+    node_id: str
+    snippet_data: dict  # Serialized Snippet
+    
+    def execute(self) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                node.add_snippet_internal(self.snippet_data)
+    
+    def undo(self) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                snippet_id = self.snippet_data.get('id')
+                node.remove_snippet_internal(snippet_id)
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "SnippetAdd",
+            "node_id": self.node_id,
+            "snippet_data": self.snippet_data
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "SnippetAddCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            snippet_data=data["snippet_data"]
+        )
+
+
+@dataclass
+class SnippetRemoveCommand(Command):
+    """Command for removing a snippet from a node."""
+    context: Any
+    node_id: str
+    snippet_data: dict  # Serialized Snippet for restoration
+    snippet_index: int  # Position in the list
+    
+    def execute(self) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                snippet_id = self.snippet_data.get('id')
+                node.remove_snippet_internal(snippet_id)
+    
+    def undo(self) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                # Re-insert at original position using internal method variant
+                from models import Snippet
+                from graphics_items import SnippetItem
+                snippet = Snippet.from_dict(self.snippet_data)
+                idx = min(self.snippet_index, len(node.node_data.snippets))
+                node.node_data.snippets.insert(idx, snippet)
+                item = SnippetItem(snippet, node)
+                node._snippet_items.insert(idx, item)
+                node.update_layout()
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "SnippetRemove",
+            "node_id": self.node_id,
+            "snippet_data": self.snippet_data,
+            "snippet_index": self.snippet_index
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "SnippetRemoveCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            snippet_data=data["snippet_data"],
+            snippet_index=data["snippet_index"]
+        )
+
+
+@dataclass
+class SnippetEditCommand(Command):
+    """Command for editing snippet content or source label."""
+    context: Any
+    node_id: str
+    snippet_id: str
+    field: str  # "content" or "source_label"
+    old_value: str
+    new_value: str
+    
+    def execute(self) -> None:
+        self._set_value(self.new_value)
+    
+    def undo(self) -> None:
+        self._set_value(self.old_value)
+    
+    def _set_value(self, value: str) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                for item in node._snippet_items:
+                    if item.snippet_data.id == self.snippet_id:
+                        if self.field == "content":
+                            item.snippet_data.content = value
+                        elif self.field == "source_label":
+                            item.snippet_data.source_label = value
+                        item._update_geometry()
+                        item.update()
+                        break
+                node.update_layout()
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "SnippetEdit",
+            "node_id": self.node_id,
+            "snippet_id": self.snippet_id,
+            "field": self.field,
+            "old_value": self.old_value,
+            "new_value": self.new_value
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "SnippetEditCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            snippet_id=data["snippet_id"],
+            field=data["field"],
+            old_value=data["old_value"],
+            new_value=data["new_value"]
+        )
+
+
+@dataclass
+class SnippetMoveCommand(Command):
+    """Command for moving a snippet within a node's list."""
+    context: Any
+    node_id: str
+    snippet_id: str
+    from_index: int
+    to_index: int
+    
+    def execute(self) -> None:
+        self._move(self.from_index, self.to_index)
+    
+    def undo(self) -> None:
+        self._move(self.to_index, self.from_index)
+    
+    def _move(self, from_idx: int, to_idx: int) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                node.move_snippet_internal(from_idx, to_idx)
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "SnippetMove",
+            "node_id": self.node_id,
+            "snippet_id": self.snippet_id,
+            "from_index": self.from_index,
+            "to_index": self.to_index
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "SnippetMoveCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            snippet_id=data["snippet_id"],
+            from_index=data["from_index"],
+            to_index=data["to_index"]
+        )
+
+
+@dataclass
+class NodeMetadataEditCommand(Command):
+    """Command for editing node metadata (title, year, conference, module_name)."""
+    context: Any
+    node_id: str
+    field: str  # "title", "year", "conference", "module_name"
+    old_value: str
+    new_value: str
+    
+    def execute(self) -> None:
+        self._set_value(self.new_value)
+    
+    def undo(self) -> None:
+        self._set_value(self.old_value)
+    
+    def _set_value(self, value: str) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                setattr(node.node_data.metadata, self.field, value)
+                node.update()
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "NodeMetadataEdit",
+            "node_id": self.node_id,
+            "field": self.field,
+            "old_value": self.old_value,
+            "new_value": self.new_value
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "NodeMetadataEditCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            field=data["field"],
+            old_value=data["old_value"],
+            new_value=data["new_value"]
+        )
+
 @dataclass
 class AddNodeCommand(Command):
     """Command for adding a node or waypoint."""
@@ -523,9 +757,16 @@ class RemoveNodeCommand(Command):
 
 @dataclass
 class AddEdgeCommand(Command):
-    """Command for adding an connection."""
+    """Command for adding a connection.
+    For Reference→Pipeline connections, also handles cloned snippets.
+    Stores both snippet IDs and their full data for undo/redo.
+    """
     context: Any
     edge_data_dict: dict
+    target_node_id: str = ""  # Node that received cloned snippets
+    cloned_snippet_ids: list = field(default_factory=list)  # IDs of cloned snippets
+    cloned_snippet_data: list = field(default_factory=list)  # Full snippet data for redo
+    _first_execute: bool = True
     
     def execute(self) -> None:
         if hasattr(self.context, 'scene'):
@@ -533,26 +774,59 @@ class AddEdgeCommand(Command):
             edge_data = EdgeData.from_dict(self.edge_data_dict)
             self.context.scene.restore_edge(edge_data)
             
+            # On redo (not first execute), restore cloned snippets
+            if not self._first_execute and self.target_node_id and self.cloned_snippet_data:
+                node = self.context.scene._nodes.get(self.target_node_id)
+                if node:
+                    for snippet_dict in self.cloned_snippet_data:
+                        node.add_snippet_internal(snippet_dict)
+            
+            self._first_execute = False
+            
     def undo(self) -> None:
         if hasattr(self.context, 'scene'):
             self.context.scene._is_undo_operation = True
             try:
+                # Capture snippet data before removing (for redo)
+                if self.target_node_id and self.cloned_snippet_ids and not self.cloned_snippet_data:
+                    node = self.context.scene._nodes.get(self.target_node_id)
+                    if node:
+                        for snippet in node.node_data.snippets:
+                            if snippet.id in self.cloned_snippet_ids:
+                                self.cloned_snippet_data.append(snippet.to_dict())
+                
+                # Remove edge
                 self.context.scene._remove_edge_internal(self.edge_data_dict['id'])
+                
+                # Remove cloned snippets if any
+                if self.target_node_id and self.cloned_snippet_ids:
+                    node = self.context.scene._nodes.get(self.target_node_id)
+                    if node:
+                        for snippet_id in self.cloned_snippet_ids:
+                            node.remove_snippet_internal(snippet_id)
             finally:
                 self.context.scene._is_undo_operation = False
 
     def to_dict(self) -> dict:
         return {
             "type": "AddEdge",
-            "edge_data_dict": self.edge_data_dict
+            "edge_data_dict": self.edge_data_dict,
+            "target_node_id": self.target_node_id,
+            "cloned_snippet_ids": self.cloned_snippet_ids,
+            "cloned_snippet_data": self.cloned_snippet_data
         }
 
     @classmethod
     def from_dict(cls, data: dict, context: Any) -> "AddEdgeCommand":
-        return cls(
+        cmd = cls(
             context=context,
-            edge_data_dict=data["edge_data_dict"]
+            edge_data_dict=data["edge_data_dict"],
+            target_node_id=data.get("target_node_id", ""),
+            cloned_snippet_ids=data.get("cloned_snippet_ids", []),
+            cloned_snippet_data=data.get("cloned_snippet_data", [])
         )
+        cmd._first_execute = False  # Loaded from file
+        return cmd
 
 @dataclass
 class RemoveEdgeCommand(Command):
@@ -786,6 +1060,129 @@ class NodeGroupChangeCommand(Command):
             new_group_id=data.get("new_group_id")
         )
 
+
+@dataclass
+class GroupNameEditCommand(Command):
+    """Command for editing group name."""
+    context: Any
+    group_id: str
+    old_name: str
+    new_name: str
+    
+    def execute(self) -> None:
+        self._set_name(self.new_name)
+    
+    def undo(self) -> None:
+        self._set_name(self.old_name)
+    
+    def _set_name(self, name: str) -> None:
+        if hasattr(self.context, 'scene'):
+            group = self.context.scene._groups.get(self.group_id)
+            if group:
+                group.group_data.name = name
+                group.update()
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "GroupNameEdit",
+            "group_id": self.group_id,
+            "old_name": self.old_name,
+            "new_name": self.new_name
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "GroupNameEditCommand":
+        return cls(
+            context=context,
+            group_id=data["group_id"],
+            old_name=data["old_name"],
+            new_name=data["new_name"]
+        )
+
+
+@dataclass
+class GroupSizeCommand(Command):
+    """Command for resizing a group."""
+    context: Any
+    group_id: str
+    old_rect: tuple  # (x, y, width, height) in scene coords
+    new_rect: tuple
+    
+    def execute(self) -> None:
+        self._apply_rect(self.new_rect)
+    
+    def undo(self) -> None:
+        self._apply_rect(self.old_rect)
+    
+    def _apply_rect(self, rect: tuple) -> None:
+        if hasattr(self.context, 'scene'):
+            group = self.context.scene._groups.get(self.group_id)
+            if group:
+                x, y, w, h = rect
+                group.setPos(x, y)
+                group.setRect(0, 0, w, h)
+                group.group_data.position.x = x
+                group.group_data.position.y = y
+                group.group_data.width = w
+                group.group_data.height = h
+                group.update()
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "GroupSize",
+            "group_id": self.group_id,
+            "old_rect": list(self.old_rect),
+            "new_rect": list(self.new_rect)
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "GroupSizeCommand":
+        return cls(
+            context=context,
+            group_id=data["group_id"],
+            old_rect=tuple(data["old_rect"]),
+            new_rect=tuple(data["new_rect"])
+        )
+
+@dataclass
+class NodeTagToggleCommand(Command):
+    """Command for adding/removing a tag from a node."""
+    context: Any
+    node_id: str
+    tag_name: str
+    was_added: bool  # True if tag was added, False if removed
+    
+    def execute(self) -> None:
+        self._apply_toggle(add=self.was_added)
+    
+    def undo(self) -> None:
+        self._apply_toggle(add=not self.was_added)
+    
+    def _apply_toggle(self, add: bool) -> None:
+        if hasattr(self.context, 'scene'):
+            node = self.context.scene._nodes.get(self.node_id)
+            if node:
+                if add:
+                    node.add_tag_internal(self.tag_name)
+                else:
+                    node.remove_tag_internal(self.tag_name)
+    
+    def to_dict(self) -> dict:
+        return {
+            "type": "NodeTagToggle",
+            "node_id": self.node_id,
+            "tag_name": self.tag_name,
+            "was_added": self.was_added
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict, context: Any) -> "NodeTagToggleCommand":
+        return cls(
+            context=context,
+            node_id=data["node_id"],
+            tag_name=data["tag_name"],
+            was_added=data["was_added"]
+        )
 @dataclass
 class GlobalEdgeColorChangeCommand(Command):
     """Command for changing global edge colors."""
@@ -1060,7 +1457,18 @@ class UndoManager:
             "GroupMove": GroupMoveCommand,
             "NodeGroupChange": NodeGroupChangeCommand,
             "GlobalEdgeColorChange": GlobalEdgeColorChangeCommand,
-            "ModulePaletteColorChange": ModulePaletteColorChangeCommand
+            "ModulePaletteColorChange": ModulePaletteColorChangeCommand,
+            # Snippet commands (V3.9.0)
+            "SnippetAdd": SnippetAddCommand,
+            "SnippetRemove": SnippetRemoveCommand,
+            "SnippetEdit": SnippetEditCommand,
+            "SnippetMove": SnippetMoveCommand,
+            # Node metadata edit (V3.9.0)
+            "NodeMetadataEdit": NodeMetadataEditCommand,
+            # Group and tag (V3.9.0)
+            "GroupNameEdit": GroupNameEditCommand,
+            "GroupSize": GroupSizeCommand,
+            "NodeTagToggle": NodeTagToggleCommand
         }
         
         cls = command_classes.get(cmd_type)
