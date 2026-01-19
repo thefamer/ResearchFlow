@@ -136,12 +136,10 @@ Create a standalone portable executable that runs without Python installed:
 pip install pyinstaller
 
 # Option 1: Single folder (recommended, faster startup)
-pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." ^
-    --collect-all latex2mathml --name="ResearchFlow" main.py
+pyinstaller --noconsole --onedir --icon=icon.ico --add-data "icon.ico;." --collect-all latex2mathml --name="ResearchFlow" main.py
 
 # Option 2: Single file (slower startup, but just one file)
-pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." ^
-    --collect-all latex2mathml --name="ResearchFlow" main.py
+pyinstaller --noconsole --onefile --icon=icon.ico --add-data "icon.ico;." --collect-all latex2mathml --name="ResearchFlow" main.py
 ```
 
 The generated files will be in the `dist/` folder. 
