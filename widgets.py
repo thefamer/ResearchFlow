@@ -539,6 +539,28 @@ class ProjectDockWidget(QDockWidget):
             if pm.is_project_open:
                 pm.project_data.description = text
     
+    def set_description_no_cursor_reset(self, text: str) -> None:
+        """V4.1.0: Set description while preserving cursor position."""
+        cursor = self.desc_edit.textCursor()
+        cursor_pos = cursor.position()
+        
+        self.desc_edit.blockSignals(True)
+        self.desc_edit.setPlainText(text)
+        
+        # Restore cursor position (clamped to valid range)
+        cursor = self.desc_edit.textCursor()
+        new_pos = min(cursor_pos, len(text))
+        cursor.setPosition(new_pos)
+        self.desc_edit.setTextCursor(cursor)
+        
+        self.desc_edit.blockSignals(False)
+        
+        # Update project data if manager available
+        if hasattr(self, 'parent') and hasattr(self.parent(), 'project_manager'):
+            pm = self.parent().project_manager
+            if pm.is_project_open:
+                pm.project_data.description = text
+    
     def add_todo(self, text: str) -> None:
         """Add a todo item programmatically (for Undo/Redo execute)."""
         self._create_todo_item(text, False)

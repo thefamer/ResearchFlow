@@ -37,18 +37,38 @@ class Command(ABC):
 
 @dataclass
 class DescriptionChangeCommand(Command):
-    """Command for changing project description."""
+    """Command for changing project description with merge support."""
     context: Any  # MainWindow or ProjectManager reference
     old_value: str
     new_value: str
+    timestamp: float = field(default_factory=lambda: __import__('time').time())
+    
+    # V4.1.0: Merge timeout in seconds
+    MERGE_TIMEOUT = 3.0
     
     def execute(self) -> None:
         if hasattr(self.context, 'project_dock'):
-            self.context.project_dock.set_description(self.new_value)
+            self.context.project_dock.set_description_no_cursor_reset(self.new_value)
     
     def undo(self) -> None:
         if hasattr(self.context, 'project_dock'):
-            self.context.project_dock.set_description(self.old_value)
+            self.context.project_dock.set_description_no_cursor_reset(self.old_value)
+    
+    def can_merge_with(self, other: "DescriptionChangeCommand") -> bool:
+        """Check if this command can be merged with another."""
+        import time
+        if not isinstance(other, DescriptionChangeCommand):
+            return False
+        # Check time difference
+        if time.time() - self.timestamp > self.MERGE_TIMEOUT:
+            return False
+        return True
+    
+    def merge_with(self, other: "DescriptionChangeCommand") -> None:
+        """Merge another command into this one (update new_value and timestamp)."""
+        import time
+        self.new_value = other.new_value
+        self.timestamp = time.time()
     
     def to_dict(self) -> dict:
         return {
@@ -1406,7 +1426,23 @@ class UndoManager:
         # V3.9.0: Don't record commands if we're in the middle of undo/redo
         if self._is_undoing:
             return
-            
+        
+        # V4.1.0: Try to merge with previous command (for text input batching)
+        if self._undo_stack:
+            last_cmd = self._undo_stack[-1]
+            if (hasattr(last_cmd, 'can_merge_with') and 
+                hasattr(last_cmd, 'merge_with') and
+                last_cmd.can_merge_with(command)):
+                # Merge: don't execute, just update the last command
+                last_cmd.merge_with(command)
+                # Apply the new value directly
+                if hasattr(command, 'new_value') and hasattr(self.context, 'project_dock'):
+                    self.context.project_dock.set_description_no_cursor_reset(command.new_value)
+                    if hasattr(self.context, 'project_manager') and self.context.project_manager.is_project_open:
+                        self.context.project_manager.project_data.description = command.new_value
+                self._save_history_if_possible()
+                return
+        
         command.execute()
         self._undo_stack.append(command)
         

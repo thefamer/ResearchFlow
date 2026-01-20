@@ -88,7 +88,11 @@ class ResearchScene(QGraphicsScene):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setSceneRect(-2000, -2000, 4000, 4000)
+        # V4.1.0: Infinite canvas - no fixed rect, scene expands dynamically
+        # Use a very large rect initially, we'll update it dynamically
+        self._base_scene_size = 50000
+        self.setSceneRect(-self._base_scene_size/2, -self._base_scene_size/2, 
+                          self._base_scene_size, self._base_scene_size)
         
         # Grid settings
         self._grid_size = 25
@@ -1932,7 +1936,7 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self, "About ResearchFlow",
             "<h2>ResearchFlow</h2>"
-            "<p>Version 4.0.0</p>"
+            "<p>Version 4.1.0</p>"
             "<p>A portable research management tool for academics.</p>"
             "<p>Built with Python and PyQt6.</p>"
             "<hr>"

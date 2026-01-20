@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-4.0.0-blue.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-4.1.0-blue.svg" alt="Version">
   <img src="https://img.shields.io/badge/python-3.10+-green.svg" alt="Python">
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey.svg" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-orange.svg" alt="License">
@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v4.0.0 .exe from Releases</strong></a>
+  <a href="https://github.com/thefamer/ResearchFlow/releases"><strong>📥 Download v4.1.0 .exe from Releases</strong></a>
 </p>
 
-> **💡 Just want it to work?** v4.0.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
+> **💡 Just want it to work?** v4.1.0 **portable standalone .exe** is available in [Releases](https://github.com/thefamer/ResearchFlow/releases) – download and run, no Python required!
 
 ---
 
@@ -28,34 +28,29 @@ ResearchFlow is a portable, aesthetically pleasing desktop application designed 
 
 ---
 
-## ✨ What's New in V4.0.0
+## ✨ What's New in V4.1.0
 
-### 🔄 Complete Undo/Redo System (Stable Release)
-This release marks the **stable version** of the comprehensive undo/redo system, covering virtually all user interactions:
+### 🎨 Infinite Canvas
+- **Expanded Workspace**: Canvas now extends to ±25,000 units in all directions, similar to Figma's infinite canvas design.
+- **Seamless Panning**: Navigate freely without hitting boundaries.
 
-| Category | Supported Operations |
-|----------|---------------------|
-| **Canvas** | Node/Group/Edge creation & deletion, position changes |
-| **Snippets** | Add, remove, edit, reorder snippets |
-| **Metadata** | Title, year, conference, module name edits |
-| **Tags** | Add/remove tags on nodes, tag color/name changes |
-| **Groups** | Name edits, resize, node binding |
-| **Node States** | Flag toggle, lock toggle |
-| **Connections** | Edge creation with snippet cloning (Reference→Pipeline) |
+### ⌨️ Smart Description Undo
+- **Command Batching**: Consecutive text edits within 3 seconds are merged into a single undo action.
+- **Cursor Preservation**: Fixed bug where cursor would jump to the beginning after each keystroke during undo/redo.
+- **Efficient History**: Reduces undo stack clutter from rapid typing.
 
-### 🔒 Enhanced Locking System
-- **Flag & Lock Undo**: Toggling flag or lock state is now fully undoable.
-- **Locked Group Protection**: Nodes cannot be added to a locked group.
-- **Position Preservation**: Fixed critical bug where locked nodes would reset to origin (0,0) after project reload.
-
-### 🛠️ Bug Fixes & Stability
-- **Fixed**: Tag color synchronization after reordering tags.
-- **Fixed**: Tag move operation corrupting internal order.
-- **Fixed**: Node position data loss during lock/flag operations.
-- **Improved**: Position data is now explicitly preserved during all state changes.
+### 🛠️ Technical Details
+- Description changes use `can_merge_with()` and `merge_with()` pattern for intelligent batching.
+- New `set_description_no_cursor_reset()` method preserves cursor position during text updates.
 
 <details>
 <summary><strong>📜 Previous Versions</strong></summary>
+
+### V4.0.0
+- **Complete Undo/Redo System**: Stable version covering canvas, snippets, metadata, tags, groups, and node states.
+- **Flag & Lock Undo**: Toggling flag or lock state is fully undoable.
+- **Locked Group Protection**: Nodes cannot be added to locked groups.
+- **Position Preservation**: Fixed critical bug with locked nodes resetting to origin.
 
 ### V3.9.0
 - **Comprehensive Undo/Redo**: Every canvas action is undoable with 100-step history.
